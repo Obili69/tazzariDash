@@ -138,21 +138,17 @@ sudo apt install -y \
     python3-setuptools \
     python3-wheel
 
-# Create Python virtual environment for BeoCreate tools
-log_info "Setting up Python virtual environment for BeoCreate..."
-python3 -m venv ~/beocreate-env
-source ~/beocreate-env/bin/activate
-
-# Install BeoCreate tools
-log_info "Installing BeoCreate Python tools..."
-pip3 install --upgrade pip
-pip3 install \
-    beocreate \
-    numpy \
-    scipy \
-    matplotlib
-
-deactivate
+# Install BeoCreate tools using official installer
+log_info "Installing BeoCreate tools using official installer..."
+if [ ! -d "beocreate-tools" ]; then
+    git clone https://github.com/hifiberry/beocreate-tools
+    cd beocreate-tools
+    ./install-all
+    cd ..
+    log_success "BeoCreate tools installed"
+else
+    log_info "BeoCreate tools already exist, skipping installation"
+fi
 
 # Create working directory
 WORK_DIR="$HOME/lvgl-dashboard"
@@ -172,14 +168,7 @@ else
     log_info "LVGL already exists, skipping clone"
 fi
 
-# Clone BeoCreate tools
-log_info "Cloning BeoCreate tools..."
-if [ ! -d "beocreate-tools" ]; then
-    git clone https://github.com/hifiberry/beocreate-tools.git
-    log_success "BeoCreate tools cloned"
-else
-    log_info "BeoCreate tools already exist, skipping clone"
-fi
+# BeoCreate tools are installed during dependency installation above
 
 # Create basic CMakeLists.txt template
 log_info "Creating CMakeLists.txt template..."
@@ -295,15 +284,24 @@ echo "Build complete! Run with: ./build/LVGLDashboard"
 EOF
 chmod +x build.sh
 
-# Create BeoCreate activation script
-log_info "Creating BeoCreate environment activation script..."
-cat > activate_beocreate.sh << 'EOF'
+# Create BeoCreate info script
+log_info "Creating BeoCreate information script..."
+cat > beocreate_info.sh << 'EOF'
 #!/bin/bash
-echo "Activating BeoCreate Python environment..."
-source ~/beocreate-env/bin/activate
-echo "BeoCreate environment activated. Use 'deactivate' to exit."
+echo "BeoCreate Tools Information:"
+echo "Installation directory: $(pwd)/beocreate-tools"
+echo ""
+echo "Available tools:"
+ls -la beocreate-tools/ | grep -E "\.(py|sh)$" || echo "Navigate to beocreate-tools/ directory to see available tools"
+echo ""
+echo "To use BeoCreate tools:"
+echo "  cd beocreate-tools"
+echo "  python3 <tool_name>.py"
+echo ""
+echo "SigmaTCP server (if available):"
+echo "  sudo systemctl status sigmatcp"
 EOF
-chmod +x activate_beocreate.sh
+chmod +x beocreate_info.sh
 
 # Create test serial script
 log_info "Creating serial port test script..."
@@ -365,7 +363,7 @@ cat > INSTALLATION_SUMMARY.md << EOF
 
 ### Scripts Created:
 - \`build.sh\` - Build the dashboard
-- \`activate_beocreate.sh\` - Activate BeoCreate Python environment
+- \`beocreate_info.sh\` - Show BeoCreate tools information
 - \`test_serial.sh\` - Test serial ports
 
 ### Next Steps:
@@ -376,8 +374,8 @@ cat > INSTALLATION_SUMMARY.md << EOF
 5. Test serial connection with \`./test_serial.sh\`
 
 ### BeoCreate Tools:
-- Python environment: \`~/beocreate-env\`
-- Activate with: \`source activate_beocreate.sh\`
+- Installation directory: \`beocreate-tools/\`
+- Run info script: \`./beocreate_info.sh\`
 
 ### Troubleshooting:
 - Serial permissions: Check \`groups\` command includes 'dialout'
