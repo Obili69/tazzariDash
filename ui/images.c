@@ -1,0 +1,25 @@
+#include "images.h"
+
+const ext_img_desc_t images[21] = {
+    { "Tazzari", &img_tazzari },
+    { "Vollicht", &img_vollicht },
+    { "Abblendlicht", &img_abblendlicht },
+    { "DRL", &img_drl },
+    { "Rueckfahrlicht", &img_rueckfahrlicht },
+    { "Ruecklicht", &img_ruecklicht },
+    { "Nebellicht", &img_nebellicht },
+    { "iconVollicht", &img_icon_vollicht },
+    { "iconAbblendlicht", &img_icon_abblendlicht },
+    { "iconDrl", &img_icon_drl },
+    { "iconBlinker", &img_icon_blinker },
+    { "iconNebellichtHinten", &img_icon_nebellicht_hinten },
+    { "iconNebellichtVorne", &img_icon_nebellicht_vorne },
+    { "iconHandbremse", &img_icon_handbremse },
+    { "iconCreak", &img_icon_creak },
+    { "iconAbblendlichtCor", &img_icon_abblendlicht_cor },
+    { "bat", &img_bat },
+    { "stop", &img_stop },
+    { "play", &img_play },
+    { "skip", &img_skip },
+    { "ext", &img_ext },
+};

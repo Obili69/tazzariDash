@@ -1,0 +1,36 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+../include/lv_conf.h
+
+/home/parallels/lvgl-dashboard/lvgl/src/draw/sw/blend/neon/lv_blend_neon.S
+lv_blend_neon.h
+/home/parallels/lvgl-dashboard/lvgl/src/draw/sw/blend/neon/lv_blend_neon.h
+
+/home/parallels/lvgl-dashboard/lvgl/src/draw/sw/blend/neon/lv_blend_neon.h
+../../../../lv_conf_internal.h
+/home/parallels/lvgl-dashboard/lvgl/src/lv_conf_internal.h
+
+/home/parallels/lvgl-dashboard/lvgl/src/lv_conf_internal.h
+lv_conf_kconfig.h
+/home/parallels/lvgl-dashboard/lvgl/src/lv_conf_kconfig.h
+lv_conf.h
+/home/parallels/lvgl-dashboard/lvgl/src/lv_conf.h
+../../lv_conf.h
+/home/parallels/lvgl-dashboard/lv_conf.h
+
+/home/parallels/lvgl-dashboard/lvgl/src/lv_conf_kconfig.h
+sdkconfig.h
+/home/parallels/lvgl-dashboard/lvgl/src/sdkconfig.h
+esp_attr.h
+/home/parallels/lvgl-dashboard/lvgl/src/esp_attr.h
+nuttx/config.h
+-
+lv_rt_thread_conf.h
+-
+
