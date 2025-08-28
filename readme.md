@@ -56,7 +56,7 @@ This project implements a modern automotive dashboard interface that receives da
 ### Quick Install
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/Obili69/tazzariDash.git
 cd lvgl-dashboard
 
 # Run installation script
