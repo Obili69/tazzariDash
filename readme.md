@@ -6,6 +6,11 @@ A real-time automotive dashboard built with LVGL, designed for electric vehicles
 
 This project implements a modern automotive dashboard interface that receives data from ESP32-based vehicle controllers via USB serial communication. The dashboard displays critical vehicle information including speed, battery management, lighting states, and provides audio system control through HiFiBerry DSP integration.
 
+## ToDo
+- **Audio**: Add bluetooth handeling and beocreate specific audio handeling.
+- **Setup**: Add Windowless mode for deployment builds and use windowed build only in development
+- **Project**: Add config files and build flags to adjust project. (eg dev build and factory build, beocreate specific code or not) Also a cleaner main would be nice.
+- **Documentation**: Add custom UI building instructions.
 ## Features
 
 ### Vehicle Data Display
