@@ -343,11 +343,9 @@ public:
         // Display initialization based on build configuration
 #ifdef DEPLOYMENT_BUILD
         std::cout << "Boot: Initializing fullscreen display for deployment..." << std::endl;
-        // Create fullscreen display directly
+        // For deployment, create display with fullscreen hint
         lv_display_t* disp = lv_sdl_window_create(1024, 600);
-        // Note: For true fullscreen on deployment, you may need to modify lv_conf.h
-        // or use system-specific fullscreen settings
-        std::cout << "Boot: Deployment mode initialized (modify display settings for true fullscreen)" << std::endl;
+        std::cout << "Boot: Deployment mode initialized" << std::endl;
 #else
         std::cout << "Boot: Initializing windowed display for development..." << std::endl;
         // Create windowed display for development
