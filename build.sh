@@ -4,7 +4,7 @@
 set -e
 
 # Default build mode
-BUILD_MODE="dev"
+BUILD_MODE="prod"
 BUILD_TYPE="Debug"
 ENABLE_BLUETOOTH="ON"
 
