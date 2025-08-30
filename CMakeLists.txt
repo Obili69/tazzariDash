@@ -3,6 +3,23 @@ project(LVGLDashboard)
 
 set(CMAKE_CXX_STANDARD 17)
 
+# Build configuration options
+option(DEPLOYMENT_BUILD "Build for deployment (fullscreen)" OFF)
+option(ENABLE_DEBUG_OUTPUT "Enable debug console output" ON)
+
+# Display build configuration
+if(DEPLOYMENT_BUILD)
+    message(STATUS "Building for DEPLOYMENT - Fullscreen mode enabled")
+    add_compile_definitions(DEPLOYMENT_BUILD)
+else()
+    message(STATUS "Building for DEVELOPMENT - Windowed mode enabled")
+endif()
+
+if(ENABLE_DEBUG_OUTPUT)
+    message(STATUS "Debug output enabled")
+    add_compile_definitions(ENABLE_DEBUG_OUTPUT)
+endif()
+
 # Find SDL2
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -29,7 +46,7 @@ set(SOURCES
 # Executable
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# Link libraries - removed bluetooth for now
+# Link libraries
 target_link_libraries(${PROJECT_NAME}
     lvgl
     pthread
@@ -38,3 +55,10 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE ${SDL2_CFLAGS_OTHER})
+
+# Set different names for different builds
+if(DEPLOYMENT_BUILD)
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "LVGLDashboard_deployment")
+else()
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "LVGLDashboard_dev")
+endif()

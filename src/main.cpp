@@ -51,8 +51,6 @@ typedef struct {
   uint32_t timestamp;
 } automotive_data_t;
 
-
-
 // EEZ Studio event handler infrastructure
 lv_event_t g_eez_event;
 bool g_eez_event_is_available = false;
@@ -65,7 +63,7 @@ extern "C" void action_set_global_eez_event(lv_event_t* event) {
 // Gear enumeration
 enum Gear {
     GEAR_D = 0,
-    GEAR_N = 1, 
+    GEAR_N = 1,
     GEAR_R = 2
 };
 
@@ -77,7 +75,7 @@ private:
     
     // USB Serial configuration
     int serial_fd = -1;
-    const char* serial_port = "/dev/ttyACM0";  // Default USB serial port
+    const char* serial_port = "/dev/ttyUSB0";  // Default USB serial port
     const int baud_rate = 115200;
     
     // Serial packet receiving variables
@@ -338,7 +336,25 @@ public:
         std::cout << "Boot: Initializing LVGL..." << std::endl;
         
         lv_init();
+        
+        // Display initialization based on build configuration
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Boot: Initializing fullscreen display for deployment..." << std::endl;
+        // Create fullscreen display
         lv_display_t* disp = lv_sdl_window_create(1024, 600);
+        // Set fullscreen mode
+        SDL_Window* sdl_window = (SDL_Window*)lv_sdl_window_get_from_indev(lv_indev_get_next(NULL));
+        if (sdl_window) {
+            SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+            std::cout << "Boot: Fullscreen mode enabled" << std::endl;
+        }
+#else
+        std::cout << "Boot: Initializing windowed display for development..." << std::endl;
+        // Create windowed display for development
+        lv_display_t* disp = lv_sdl_window_create(1024, 600);
+        std::cout << "Boot: Development window created (1024x600)" << std::endl;
+#endif
+        
         lv_indev_t* indev = lv_sdl_mouse_create();
         
         std::cout << "Boot: Initializing UI..." << std::endl;
@@ -458,7 +474,7 @@ public:
             bool voltage_work_high = (max_cell_voltage > 4.0);
             bool voltage_work_low = (min_cell_voltage < 2.8);
             
-            battery_warning = temp_high_warning || temp_low_warning || 
+            battery_warning = temp_high_warning || temp_low_warning ||
                              voltage_damage_high || voltage_damage_low ||
                              voltage_work_high || voltage_work_low;
         }
@@ -654,7 +670,7 @@ public:
             gear = 2; // R
             setGear(GEAR_R);
         } else if (receivedAutomotiveData.forward) {
-            gear = 0; // D  
+            gear = 0; // D
             setGear(GEAR_D);
         } else {
             gear = 1; // N
