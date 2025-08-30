@@ -78,7 +78,7 @@ private:
     
     // USB Serial configuration
     int serial_fd = -1;
-    const char* serial_port = "/dev/ttyUSB0";  // Default USB serial port
+    const char* serial_port = "/dev/ttyACM0";  // Default USB serial port
     const int baud_rate = 115200;
     
     // Serial packet receiving variables
