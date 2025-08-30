@@ -139,16 +139,16 @@ sudo apt install -y \
     python3-wheel
 
 # Install BeoCreate tools using official installer
-log_info "Installing BeoCreate tools using official installer..."
-if [ ! -d "beocreate-tools" ]; then
-    git clone https://github.com/hifiberry/beocreate-tools
-    cd beocreate-tools
-    ./install-all
-    cd ..
-    log_success "BeoCreate tools installed"
-else
-    log_info "BeoCreate tools already exist, skipping installation"
-fi
+#log_info "Installing BeoCreate tools using official installer..."
+#if [ ! -d "beocreate-tools" ]; then
+ #   git clone https://github.com/hifiberry/beocreate-tools
+  #  cd beocreate-tools
+   # ./install-all
+    #cd ..
+    #log_success "BeoCreate tools installed"
+#else
+ #   log_info "BeoCreate tools already exist, skipping installation"
+#fi
 
 # Create working directory
 WORK_DIR="$HOME/lvgl-dashboard"
