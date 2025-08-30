@@ -4,6 +4,7 @@
 #include <sstream>
 #include <chrono>
 #include <algorithm>
+#include <cstring>  // For strcspn, strlen
 
 struct BluetoothAudioManager::BluetoothImpl {
     bool bluez_initialized = false;

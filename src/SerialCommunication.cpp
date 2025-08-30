@@ -244,5 +244,3 @@ void SerialCommunication::setAutomotiveDataCallback(std::function<void(const aut
 void SerialCommunication::setBMSDataCallback(std::function<void(const bms_data_t&)> callback) {
     bms_callback = callback;
 }
-
-#endif // SERIAL_COMMUNICATION_H

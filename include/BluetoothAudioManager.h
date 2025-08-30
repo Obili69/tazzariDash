@@ -70,6 +70,7 @@ private:
     void initializeBlueZ();
     void startMonitorThread();
     void monitorLoop();
+    void updateMediaInfo();
     
     // D-Bus communication helpers
     bool executeDBusCommand(const std::string& command);
