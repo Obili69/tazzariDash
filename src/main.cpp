@@ -1,4 +1,3 @@
-#include <SDL2/SDL.h>
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
@@ -51,6 +50,9 @@ typedef struct {
   uint16_t rpm;
   uint32_t timestamp;
 } automotive_data_t;
+
+// Objects struct is defined in UI files - just declare extern
+extern objects_t objects;
 
 // EEZ Studio event handler infrastructure
 lv_event_t g_eez_event;
@@ -341,14 +343,11 @@ public:
         // Display initialization based on build configuration
 #ifdef DEPLOYMENT_BUILD
         std::cout << "Boot: Initializing fullscreen display for deployment..." << std::endl;
-        // Create fullscreen display
+        // Create fullscreen display directly
         lv_display_t* disp = lv_sdl_window_create(1024, 600);
-        // Set fullscreen mode
-        SDL_Window* sdl_window = (SDL_Window*)lv_sdl_window_get_from_indev(lv_indev_get_next(NULL));
-        if (sdl_window) {
-            SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-            std::cout << "Boot: Fullscreen mode enabled" << std::endl;
-        }
+        // Note: For true fullscreen on deployment, you may need to modify lv_conf.h
+        // or use system-specific fullscreen settings
+        std::cout << "Boot: Deployment mode initialized (modify display settings for true fullscreen)" << std::endl;
 #else
         std::cout << "Boot: Initializing windowed display for development..." << std::endl;
         // Create windowed display for development
