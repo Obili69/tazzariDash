@@ -1,3 +1,4 @@
+#include <SDL2/SDL.h>
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
