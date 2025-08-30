@@ -1,0 +1,43 @@
+# Build directories
+/build/
+build/
+
+# LVGL library (should be installed separately)
+/lvgl/
+lvgl/
+
+# Compiled executables
+*.exe
+*.out
+LVGLDashboard
+
+# Object files
+*.o
+*.obj
+*.so
+*.a
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Runtime data files
+dashboard_data.txt
+*.log
+
+# Temporary files
+*.tmp
+*.temp
