@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# LVGL Dashboard Complete Dependencies Installation Script
-# Compatible with Ubuntu 20.04+ and Raspberry Pi OS
+# LVGL Dashboard Minimal Dependencies Installation Script
+# Installs only what's needed for basic dashboard functionality
 
 set -e  # Exit on any error
 
@@ -46,24 +46,14 @@ else
     exit 1
 fi
 
-# Check for supported OS
-case $OS in
-    "ubuntu"|"debian"|"raspbian")
-        log_info "Supported OS detected"
-        ;;
-    *)
-        log_warning "OS not specifically tested, proceeding anyway..."
-        ;;
-esac
-
 log_info "Starting LVGL Dashboard Dependencies Installation..."
 log_info "This will install:"
-log_info "  • Build tools (GCC, CMake, Git)"
-log_info "  • SDL2 development libraries"
+log_info "  • Essential build tools (GCC, CMake, Git)"
+log_info "  • SDL2 development libraries (for LVGL display)"
 log_info "  • Audio system dependencies (ALSA, PulseAudio, Bluetooth)"
-log_info "  • Python and BeoCreate tools"
-log_info "  • Serial communication tools"
-log_info "  • LVGL library"
+log_info "  • HiFiBerry DSP control library"
+log_info "  • Serial communication tools (for ESP32 connection)"
+log_info "  • User permissions for USB serial access"
 
 read -p "Continue? (y/N): " -n 1 -r
 echo
@@ -76,30 +66,21 @@ fi
 log_info "Updating package lists..."
 sudo apt update
 
-# Essential build tools
+# Essential build tools only
 log_info "Installing essential build tools..."
 sudo apt install -y \
     build-essential \
     cmake \
     git \
-    pkg-config \
-    wget \
-    curl \
-    unzip \
-    python3 \
-    python3-pip \
-    python3-dev \
-    python3-venv
+    pkg-config
 
-# SDL2 for LVGL development window
+# SDL2 for LVGL display (essential)
 log_info "Installing SDL2 development libraries..."
 sudo apt install -y \
     libsdl2-dev \
-    libsdl2-image-dev \
-    libsdl2-mixer-dev \
-    libsdl2-ttf-dev
+    libsdl2-image-dev
 
-# Audio system dependencies
+# Audio system dependencies for HiFiBerry DSP control
 log_info "Installing audio system dependencies..."
 sudo apt install -y \
     libasound2-dev \
@@ -112,141 +93,40 @@ sudo apt install -y \
     bluez-tools \
     pulseaudio-module-bluetooth
 
-# Additional development libraries
-log_info "Installing additional development libraries..."
-sudo apt install -y \
-    libssl-dev \
-    libffi-dev \
-    libudev-dev \
-    libusb-1.0-0-dev
-
-# Serial communication tools
+# Serial communication tools for ESP32 testing
 log_info "Installing serial communication tools..."
 sudo apt install -y \
     screen \
     minicom \
-    picocom \
-    setserial
+    picocom
 
 # Add user to dialout group for serial access
 log_info "Adding user to dialout group for serial port access..."
 sudo usermod -a -G dialout $USER
 
-# Python development tools and BeoCreate dependencies
-log_info "Installing Python development tools..."
-sudo apt install -y \
-    python3-setuptools \
-    python3-wheel
+# Create working directory and setup LVGL
+WORK_DIR="$HOME/tazzariDash"
+if [ ! -d "$WORK_DIR" ]; then
+    log_info "Creating working directory: $WORK_DIR"
+    mkdir -p "$WORK_DIR"
+    cd "$WORK_DIR"
+else
+    log_info "Working directory exists: $WORK_DIR"
+    cd "$WORK_DIR"
+fi
 
-# Install BeoCreate tools using official installer
-#log_info "Installing BeoCreate tools using official installer..."
-#if [ ! -d "beocreate-tools" ]; then
- #   git clone https://github.com/hifiberry/beocreate-tools
-  #  cd beocreate-tools
-   # ./install-all
-    #cd ..
-    #log_success "BeoCreate tools installed"
-#else
- #   log_info "BeoCreate tools already exist, skipping installation"
-#fi
-
-# Create working directory
-WORK_DIR="$HOME/lvgl-dashboard"
-log_info "Creating working directory: $WORK_DIR"
-mkdir -p "$WORK_DIR"
-cd "$WORK_DIR"
-
-# Clone LVGL library
-log_info "Cloning LVGL library..."
+# Clone LVGL library if not present
+log_info "Setting up LVGL library..."
 if [ ! -d "lvgl" ]; then
+    log_info "Cloning LVGL library..."
     git clone --recurse-submodules https://github.com/lvgl/lvgl.git
     cd lvgl
     git checkout release/v9.0
     cd ..
-    log_success "LVGL library cloned"
+    log_success "LVGL library setup complete"
 else
     log_info "LVGL already exists, skipping clone"
 fi
-
-# BeoCreate tools are installed during dependency installation above
-
-# Create basic CMakeLists.txt template
-log_info "Creating CMakeLists.txt template..."
-cat > CMakeLists.txt << 'EOF'
-cmake_minimum_required(VERSION 3.16)
-project(LVGLDashboard)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Find required packages
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SDL2 REQUIRED sdl2)
-
-# LVGL configuration
-set(LV_CONF_PATH ${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h CACHE STRING "Path to lv_conf.h")
-add_subdirectory(lvgl)
-
-# Include directories
-include_directories(include)
-include_directories(lvgl)
-include_directories(ui)
-
-# Source files
-file(GLOB_RECURSE SOURCES 
-    "src/*.cpp" 
-    "src/*.c"
-    "ui/*.c"
-)
-
-# Create executable
-add_executable(LVGLDashboard ${SOURCES})
-
-# Link libraries
-target_link_libraries(LVGLDashboard 
-    lvgl
-    ${SDL2_LIBRARIES}
-    pthread
-)
-
-# Compiler flags
-target_compile_options(LVGLDashboard PRIVATE ${SDL2_CFLAGS_OTHER})
-EOF
-
-# Create basic lv_conf.h template
-log_info "Creating lv_conf.h template..."
-mkdir -p include
-cat > include/lv_conf.h << 'EOF'
-#ifndef LV_CONF_H
-#define LV_CONF_H
-
-#define LV_USE_DEV_VERSION      1
-#define LV_COLOR_DEPTH          32
-#define LV_MEM_SIZE             (128U * 1024U)
-
-/* SDL drivers */
-#define LV_USE_SDL              1
-
-/* Enable fonts */
-#define LV_FONT_MONTSERRAT_14   1
-#define LV_FONT_MONTSERRAT_16   1
-#define LV_FONT_MONTSERRAT_18   1
-#define LV_FONT_MONTSERRAT_24   1
-#define LV_FONT_MONTSERRAT_48   1
-
-/* Charts */
-#define LV_USE_CHART            1
-
-/* Enable all widgets */
-#define LV_USE_ARC              1
-#define LV_USE_BAR              1
-#define LV_USE_BTN              1
-#define LV_USE_LABEL            1
-#define LV_USE_IMG              1
-#define LV_USE_SLIDER           1
-
-#endif /*LV_CONF_H*/
-EOF
 
 # Create udev rules for common USB serial devices
 log_info "Creating udev rules for USB serial devices..."
@@ -276,122 +156,138 @@ echo "Building LVGL Dashboard..."
 mkdir -p build
 cd build
 
-# Configure and build
+# Configure with CMake
+echo "Running CMake configuration..."
 cmake ..
+
+# Build with all available cores
+echo "Compiling project..."
 make -j$(nproc)
 
-echo "Build complete! Run with: ./build/LVGLDashboard"
+echo ""
+echo "Build complete!"
+echo "Run with: ./build/LVGLDashboard"
 EOF
 chmod +x build.sh
-
-# Create BeoCreate info script
-log_info "Creating BeoCreate information script..."
-cat > beocreate_info.sh << 'EOF'
-#!/bin/bash
-echo "BeoCreate Tools Information:"
-echo "Installation directory: $(pwd)/beocreate-tools"
-echo ""
-echo "Available tools:"
-ls -la beocreate-tools/ | grep -E "\.(py|sh)$" || echo "Navigate to beocreate-tools/ directory to see available tools"
-echo ""
-echo "To use BeoCreate tools:"
-echo "  cd beocreate-tools"
-echo "  python3 <tool_name>.py"
-echo ""
-echo "SigmaTCP server (if available):"
-echo "  sudo systemctl status sigmatcp"
-EOF
-chmod +x beocreate_info.sh
 
 # Create test serial script
 log_info "Creating serial port test script..."
 cat > test_serial.sh << 'EOF'
 #!/bin/bash
-echo "Available serial ports:"
+echo "=== Serial Port Detection ==="
+echo ""
+echo "Available USB serial ports:"
 ls /dev/tty{USB,ACM}* 2>/dev/null || echo "No USB serial ports found"
 
 echo ""
-echo "USB devices:"
-lsusb | grep -E "(Arduino|ESP32|CH340|CP210|FTDI)"
+echo "Connected USB devices:"
+lsusb | grep -E "(Arduino|ESP32|CH340|CP210|FTDI|Silicon Labs)" || echo "No known serial devices found"
 
 echo ""
-echo "To test a port, run:"
+echo "User groups (should include 'dialout'):"
+groups
+
+echo ""
+echo "To test a serial port:"
 echo "  screen /dev/ttyUSB0 115200"
-echo "  (Ctrl+A then K then Y to exit)"
+echo "  (Press Ctrl+A then K then Y to exit screen)"
 EOF
 chmod +x test_serial.sh
 
-# System configuration
-log_info "Configuring system settings..."
+# Create HiFiBerry DSP info script
+log_info "Creating HiFiBerry DSP information script..."
+cat > dsp_info.sh << 'EOF'
+#!/bin/bash
+echo "HiFiBerry DSP Control Information:"
+echo "Installation directory: $(pwd)/hifiberry-dsp"
+echo ""
+echo "Available DSP control files:"
+ls -la hifiberry-dsp/ | grep -E "\.(c|h|cpp)$" || echo "Navigate to hifiberry-dsp/ directory to see available files"
+echo ""
+echo "To integrate DSP control:"
+echo "  1. Include hifiberry-dsp headers in your project"
+echo "  2. Link against ALSA libraries"
+echo "  3. Use DSP control functions in your audio event handlers"
+echo ""
+echo "Audio system status:"
+echo "  ALSA: $(which aplay > /dev/null && echo "Available" || echo "Not found")"
+echo "  PulseAudio: $(systemctl --user is-active pulseaudio 2>/dev/null || echo "Not running")"
+EOF
+chmod +x dsp_info.sh
 
-# Enable I2C for HiFiBerry (if on Raspberry Pi)
-if [[ $OS == "raspbian" ]] || grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
-    log_info "Raspberry Pi detected - configuring for HiFiBerry..."
-    
-    # Add I2C and SPI modules
-    if ! grep -q "i2c-dev" /etc/modules; then
-        echo "i2c-dev" | sudo tee -a /etc/modules
-    fi
-    
-    # Configure boot config for HiFiBerry
-    if ! grep -q "dtoverlay=hifiberry" /boot/config.txt 2>/dev/null; then
-        log_info "Consider adding HiFiBerry overlay to /boot/config.txt:"
-        log_info "  dtoverlay=hifiberry-dacplus"
-    fi
-fi
+# Create clean script
+log_info "Creating clean script..."
+cat > clean.sh << 'EOF'
+#!/bin/bash
+echo "Cleaning build artifacts..."
+rm -rf build/
+echo "Clean complete!"
+EOF
+chmod +x clean.sh
 
-# Create summary file
+# Create installation summary
 log_info "Creating installation summary..."
-cat > INSTALLATION_SUMMARY.md << EOF
-# LVGL Dashboard Installation Summary
+cat > MINIMAL_INSTALL_SUMMARY.md << EOF
+# LVGL Dashboard Minimal Installation Summary
 
 ## Installation completed: $(date)
 
 ### Installed Dependencies:
-- ✅ Build tools (GCC, CMake, Git)
-- ✅ SDL2 development libraries  
-- ✅ Audio system (ALSA, PulseAudio, Bluetooth)
-- ✅ Python and BeoCreate tools
-- ✅ Serial communication tools
+- ✅ Essential build tools (GCC, CMake, Git, pkg-config)
+- ✅ SDL2 development libraries (libsdl2-dev, libsdl2-image-dev)
+- ✅ Audio system dependencies (ALSA, PulseAudio, Bluetooth)
+- ✅ HiFiBerry DSP control library
+- ✅ Serial communication tools (screen, minicom, picocom)
 - ✅ LVGL library (v9.0)
-
-### Directory Structure:
-- \`lvgl/\` - LVGL library
-- \`beocreate-tools/\` - HiFiBerry BeoCreate tools
-- \`include/lv_conf.h\` - LVGL configuration
-- \`CMakeLists.txt\` - Build configuration
+- ✅ USB serial device permissions
 
 ### Scripts Created:
-- \`build.sh\` - Build the dashboard
-- \`beocreate_info.sh\` - Show BeoCreate tools information
-- \`test_serial.sh\` - Test serial ports
+- \`build.sh\` - Build the dashboard project
+- \`clean.sh\` - Clean build artifacts  
+- \`test_serial.sh\` - Test serial port connectivity
+- \`dsp_info.sh\` - HiFiBerry DSP control information
+
+### Project Structure:
+\`\`\`
+tazzariDash/
+├── build/              # Build output (auto-created)
+├── include/            # Header files
+├── lvgl/              # LVGL library
+├── hifiberry-dsp/     # HiFiBerry DSP control library
+├── src/               # Source files
+├── ui/                # UI files
+├── CMakeLists.txt     # Build configuration
+└── build.sh           # Build script
+\`\`\`
 
 ### Next Steps:
-1. **Logout and login** to apply group changes
-2. Add your source files to \`src/\` directory
-3. Add your UI files to \`ui/\` directory  
-4. Run \`./build.sh\` to build
-5. Test serial connection with \`./test_serial.sh\`
-
-### BeoCreate Tools:
-- Installation directory: \`beocreate-tools/\`
-- Run info script: \`./beocreate_info.sh\`
+1. **IMPORTANT: Logout and login** to apply group changes for serial access
+2. Run \`./build.sh\` to build the project
+3. Connect ESP32 via USB
+4. Run \`./test_serial.sh\` to verify serial connection
+5. Run \`./dsp_info.sh\` to check DSP control setup
+6. Run \`./build/LVGLDashboard\` to start the dashboard
 
 ### Troubleshooting:
-- Serial permissions: Check \`groups\` command includes 'dialout'
-- USB ports: Run \`./test_serial.sh\` to find available ports
-- Build issues: Check CMakeLists.txt paths match your project structure
+- **Build errors**: Check that all source files are in place
+- **Serial access**: Ensure you've logged out/in after installation
+- **No serial ports**: Check USB connection and run \`./test_serial.sh\`
+- **SDL2 errors**: Verify installation with \`pkg-config --modversion sdl2\`
+- **Audio issues**: Check PulseAudio status with \`systemctl --user status pulseaudio\`
+- **DSP control**: Review \`./dsp_info.sh\` for integration guidance
 EOF
 
-log_success "Installation completed successfully!"
+log_success "Minimal installation completed successfully!"
 log_info "Working directory: $WORK_DIR"
+log_info ""
 log_info "Next steps:"
-log_info "  1. Logout and login to apply group changes"
-log_info "  2. Copy your source files (main.cpp, ui files) to this directory"
-log_info "  3. Run ./build.sh to build the project"
-log_info "  4. Run ./test_serial.sh to find your ESP32 port"
+log_info "  1. LOGOUT AND LOGIN to apply serial port permissions"
+log_info "  2. Run: cd $WORK_DIR && ./build.sh"
+log_info "  3. Test serial: ./test_serial.sh" 
+log_info "  4. Run dashboard: ./build/LVGLDashboard"
 
-log_warning "IMPORTANT: You must logout and login (or reboot) for serial port access to work!"
+log_warning ""
+log_warning "CRITICAL: You MUST logout and login for serial port access to work!"
 
 echo
-log_info "Installation summary saved to: $WORK_DIR/INSTALLATION_SUMMARY.md"
+log_info "Installation summary saved to: $WORK_DIR/MINIMAL_INSTALL_SUMMARY.md"
