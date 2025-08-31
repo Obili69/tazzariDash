@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh - Streamlined build script for LVGL Dashboard
+# build.sh - Build script for LVGL Dashboard with SimplifiedAudioManager
 
 set -e
 
@@ -16,7 +16,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 # Default configuration
 BUILD_TYPE="Debug"
 DEPLOYMENT_MODE=false
-BLUETOOTH_ENABLED=true
+SIMPLE_AUDIO_ENABLED=true
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -35,8 +35,8 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="Release"
             shift
             ;;
-        --no-bluetooth)
-            BLUETOOTH_ENABLED=false
+        --no-audio)
+            SIMPLE_AUDIO_ENABLED=false
             shift
             ;;
         --help|-h)
@@ -49,12 +49,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --release           Force release build type"
             echo ""
             echo "Features:"
-            echo "  --no-bluetooth      Disable Bluetooth audio support"
+            echo "  --no-audio          Disable audio support"
             echo ""
             echo "Examples:"
-            echo "  $0                  # Debug build with Bluetooth"
+            echo "  $0                  # Debug build with audio"
             echo "  $0 --deployment     # Production build"
-            echo "  $0 --dev --no-bluetooth # Debug without Bluetooth"
+            echo "  $0 --dev --no-audio # Debug without audio"
             exit 0
             ;;
         *)
@@ -68,7 +68,7 @@ done
 log_info "Building LVGL Dashboard..."
 log_info "Mode: $([ "$DEPLOYMENT_MODE" = true ] && echo "Deployment (fullscreen)" || echo "Development (windowed)")"
 log_info "Type: $BUILD_TYPE"
-log_info "Bluetooth: $([ "$BLUETOOTH_ENABLED" = true ] && echo "Enabled" || echo "Disabled")"
+log_info "Audio: $([ "$SIMPLE_AUDIO_ENABLED" = true ] && echo "Simplified Audio Manager" || echo "Disabled")"
 
 # Check prerequisites
 log_info "Checking prerequisites..."
@@ -77,7 +77,7 @@ if [ ! -d "src" ] || [ ! -f "src/main.cpp" ]; then
     echo "Error: Source files not found!"
     echo "Expected directory structure:"
     echo "  src/main.cpp"
-    echo "  src/BluetoothAudioManager.cpp"
+    echo "  src/SimplifiedAudioManager.cpp"
     echo "  src/SerialCommunication.cpp"
     echo "  include/[headers]"
     echo "  ui/[ui files]"
@@ -92,7 +92,7 @@ if [ ! -d "lvgl" ]; then
 fi
 
 # Check for required headers
-REQUIRED_HEADERS=("include/lv_conf.h" "include/BluetoothAudioManager.h" "include/SerialCommunication.h")
+REQUIRED_HEADERS=("include/lv_conf.h" "include/SimplifiedAudioManager.h" "include/SerialCommunication.h")
 for header in "${REQUIRED_HEADERS[@]}"; do
     if [ ! -f "$header" ]; then
         echo "Error: Required header $header not found"
@@ -113,16 +113,21 @@ else
     CMAKE_ARGS="$CMAKE_ARGS -DDEPLOYMENT_BUILD=OFF"
 fi
 
-if [ "$BLUETOOTH_ENABLED" = true ]; then
-    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_BLUETOOTH=ON"
+if [ "$SIMPLE_AUDIO_ENABLED" = true ]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_SIMPLE_AUDIO=ON"
     
-    # Check Bluetooth dependencies
-    if ! pkg-config --exists dbus-1; then
-        log_warning "D-Bus development libraries missing - installing..."
-        sudo apt install -y libdbus-1-dev
+    # Check audio dependencies
+    if ! which amixer >/dev/null 2>&1; then
+        log_warning "ALSA tools missing - installing..."
+        sudo apt install -y alsa-utils
+    fi
+    
+    if ! which bluetoothctl >/dev/null 2>&1; then
+        log_warning "Bluetooth tools missing - installing..."
+        sudo apt install -y bluetooth bluez
     fi
 else
-    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_BLUETOOTH=OFF"
+    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_SIMPLE_AUDIO=OFF"
 fi
 
 log_info "Running CMake: cmake $CMAKE_ARGS .."
@@ -162,17 +167,16 @@ echo "Executable: $EXECUTABLE"
 echo "Quick run: ./$RUN_SCRIPT"
 echo ""
 
-if [ "$BLUETOOTH_ENABLED" = true ]; then
-    echo "Bluetooth Audio enabled:"
-    echo "  • Volume control via UI arc widget"
-    echo "  • Media controls (play/pause/skip)"
-    echo "  • Auto-connects to paired devices"
-    echo "  • Routes audio to analog jack"
+if [ "$SIMPLE_AUDIO_ENABLED" = true ]; then
+    echo "Simplified Audio Manager enabled:"
+    echo "  • Volume control via BeoCreate DSP or ALSA"
+    echo "  • Basic Bluetooth controls (play/pause/skip)"
+    echo "  • Pi appears as 'TazzariAudio' on phones"
+    echo "  • Much more reliable than complex setup"
     echo ""
-    echo "Bluetooth setup:"
-    echo "  ./streamlined_bluetooth_fix.sh  # Setup A2DP audio sink"
-    echo "  ./pair_phone.sh                 # Pair your phone"
-    echo "  ./route_bt_to_jack.sh           # Route audio to speakers"
+    echo "Audio setup:"
+    echo "  ./test_simplified_audio.sh  # Test audio systems"
+    echo "  sudo systemctl start bluetooth  # Enable Bluetooth"
 fi
 
 echo ""
