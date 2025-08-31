@@ -88,18 +88,19 @@ void BluetoothAudioManager::initializeBlueZ() {
     
     // Enable Bluetooth controller
     executeDBusCommand("hciconfig hci0 up");
+    executeDBusCommand("hciconfig hci0 name 'TazzariAudio'");
     
-    // Set discoverable and pairable
+    // Set discoverable and pairable with auto-accept
     executeDBusCommand("bluetoothctl power on");
     executeDBusCommand("bluetoothctl discoverable on");
     executeDBusCommand("bluetoothctl pairable on");
     
-    // Set agent for auto-pairing
-    executeDBusCommand("bluetoothctl agent on");
+    // Set NoInputNoOutput agent for auto-pairing (no PIN required)
+    executeDBusCommand("bluetoothctl agent NoInputNoOutput");
     executeDBusCommand("bluetoothctl default-agent");
     
     impl->bluez_initialized = true;
-    std::cout << "BT Audio: BlueZ initialized - device is discoverable" << std::endl;
+    std::cout << "BT Audio: BlueZ initialized - TazzariAudio is discoverable with auto-pairing" << std::endl;
 }
 
 void BluetoothAudioManager::startMonitorThread() {
@@ -243,35 +244,67 @@ bool BluetoothAudioManager::previous() {
 bool BluetoothAudioManager::sendMPRISCommand(const std::string& command) {
     std::cout << "BT Audio: Attempting MPRIS command: " << command << std::endl;
     
-    // Get list of available MPRIS players with better command
-    FILE* pipe = popen("busctl --user list | grep 'org.mpris.MediaPlayer2' | head -1 | awk '{print $1}'", "r");
+    // First try to find MPRIS players using multiple methods
+    std::vector<std::string> detection_commands = {
+        "busctl --user list | grep 'org.mpris.MediaPlayer2' | head -1 | awk '{print $1}'",
+        "dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -o 'org.mpris.MediaPlayer2.[^\"]*' | head -1"
+    };
     
-    if (!pipe) {
-        std::cout << "BT Audio: Failed to open pipe for MPRIS detection" << std::endl;
+    for (const auto& detection_cmd : detection_commands) {
+        FILE* pipe = popen(detection_cmd.c_str(), "r");
+        if (!pipe) continue;
+        
+        char player_name[256];
+        if (fgets(player_name, sizeof(player_name), pipe)) {
+            // Remove newline and quotes
+            player_name[strcspn(player_name, "\n")] = 0;
+            // Remove quotes if present
+            std::string player_str(player_name);
+            player_str.erase(std::remove(player_str.begin(), player_str.end(), '\"'), player_str.end());
+            
+            if (!player_str.empty()) {
+                std::cout << "BT Audio: Found MPRIS player: " << player_str << std::endl;
+                
+                // Try busctl first (more reliable)
+                std::string busctl_command = "busctl --user call " + player_str + 
+                                           " /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player " + command;
+                
+                std::cout << "BT Audio: Executing: " << busctl_command << std::endl;
+                pclose(pipe);
+                
+                bool result = executeDBusCommand(busctl_command);
+                if (result) {
+                    return true;
+                }
+                
+                // Fallback to dbus-send if busctl fails
+                std::string dbus_command = "dbus-send --session --print-reply --dest=" + player_str + 
+                                         " /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player." + command;
+                
+                std::cout << "BT Audio: Fallback command: " << dbus_command << std::endl;
+                return executeDBusCommand(dbus_command);
+            }
+        }
+        pclose(pipe);
+    }
+    
+    // Try direct BlueZ player control as last resort
+    std::cout << "BT Audio: Trying BlueZ player control..." << std::endl;
+    std::string bluez_cmd = "bluetoothctl << EOF\n";
+    if (command == "Play") {
+        bluez_cmd += "player.play\n";
+    } else if (command == "Pause") {
+        bluez_cmd += "player.pause\n";
+    } else if (command == "Next") {
+        bluez_cmd += "player.next\n";
+    } else if (command == "Previous") {
+        bluez_cmd += "player.previous\n";
+    } else {
         return false;
     }
+    bluez_cmd += "EOF";
     
-    char player_name[256];
-    if (fgets(player_name, sizeof(player_name), pipe)) {
-        // Remove newline
-        player_name[strcspn(player_name, "\n")] = 0;
-        
-        if (strlen(player_name) > 0) {
-            std::cout << "BT Audio: Found MPRIS player: " << player_name << std::endl;
-            
-            // Use busctl instead of dbus-send for more reliability
-            std::string busctl_command = "busctl --user call " + std::string(player_name) + 
-                                       " /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player " + command;
-            
-            std::cout << "BT Audio: Executing: " << busctl_command << std::endl;
-            pclose(pipe);
-            return executeDBusCommand(busctl_command);
-        }
-    }
-    
-    pclose(pipe);
-    std::cout << "BT Audio: No MPRIS players found" << std::endl;
-    return false;
+    return executeDBusCommand(bluez_cmd);
 }
 
 void BluetoothAudioManager::scanForDevices() {
