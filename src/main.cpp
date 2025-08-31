@@ -1,3 +1,4 @@
+// Updated main.cpp - Replace complex Bluetooth with SimplifiedAudioManager
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
@@ -7,7 +8,7 @@
 #include <fstream>
 
 // Project headers
-#include "BluetoothAudioManager.h"
+#include "SimplifiedAudioManager.h"  // NEW: Replace BluetoothAudioManager
 #include "SerialCommunication.h"
 
 // Include UI files
@@ -40,7 +41,7 @@ private:
     std::atomic<bool> running{true};
     
     // Component managers
-    std::unique_ptr<BluetoothAudioManager> bluetooth_audio;
+    std::unique_ptr<SimplifiedAudioManager> audio_manager;  // CHANGED: Use simplified manager
     std::unique_ptr<SerialCommunication> serial_comm;
     
     // LVGL chart series
@@ -154,23 +155,20 @@ public:
             processBMSData(data);
         });
         
-        // Initialize Bluetooth Audio
-        std::cout << "Boot: Initializing Bluetooth Audio..." << std::endl;
-        bluetooth_audio = std::make_unique<BluetoothAudioManager>();
-        if (bluetooth_audio->initialize()) {
+        // Initialize Simplified Audio Manager (CHANGED)
+        std::cout << "Boot: Initializing Simplified Audio Manager..." << std::endl;
+        audio_manager = std::make_unique<SimplifiedAudioManager>();
+        if (audio_manager->initialize()) {
             audio_initialized = true;
             
             // Set up audio state callback
-            bluetooth_audio->setMediaStateCallback([this](const MediaInfo& info) {
+            audio_manager->setStateCallback([this](const SimpleMediaInfo& info) {
                 updateAudioDisplay(info);
             });
             
-            // Start device scanning
-            bluetooth_audio->scanForDevices();
-            
-            std::cout << "Boot: Bluetooth Audio ready - device is discoverable" << std::endl;
+            std::cout << "Boot: Simplified Audio ready - Pi appears as 'TazzariAudio'" << std::endl;
         } else {
-            std::cout << "Warning: Bluetooth Audio initialization failed" << std::endl;
+            std::cout << "Warning: Audio initialization failed" << std::endl;
         }
     }
     
@@ -284,11 +282,10 @@ public:
         bms_connected = true;
     }
     
-    void updateAudioDisplay(const MediaInfo& info) {
-        // Update audio connection status in UI if needed
-        // For now, just log the state
+    // CHANGED: Simplified audio display update
+    void updateAudioDisplay(const SimpleMediaInfo& info) {
         std::cout << "Audio: " << (info.connected ? "Connected" : "Disconnected") 
-                  << " - " << info.title << " by " << info.artist << std::endl;
+                  << " - " << info.device_name << " Vol:" << info.volume << "%" << std::endl;
     }
     
     void updateDisplay() {
@@ -468,41 +465,39 @@ public:
             std::cout << "UI: Trip reset requested" << std::endl;
             resetTrip();
         }
-        // Audio controls
+        // CHANGED: Simplified audio controls
         else if(obj == objects.btn_play && audio_initialized) {
-            std::cout << "UI: Play button pressed" << std::endl;
-            MediaInfo info = bluetooth_audio->getCurrentMediaInfo();
-            if (info.state == PlaybackState::PLAYING) {
-                bluetooth_audio->pause();
-            } else {
-                bluetooth_audio->play();
-            }
+            std::cout << "UI: Play/Pause button pressed" << std::endl;
+            audio_manager->togglePlayPause();
         }
         else if(obj == objects.btn_skip && audio_initialized) {
             std::cout << "UI: Skip button pressed" << std::endl;
-            bluetooth_audio->next();
+            audio_manager->nextTrack();
         }
         else if(obj == objects.btn_back && audio_initialized) {
             std::cout << "UI: Back button pressed" << std::endl;
-            bluetooth_audio->previous();
+            audio_manager->previousTrack();
         }
         else if(obj == objects.arc_volume && audio_initialized) {
             int32_t volume = lv_arc_get_value(obj);
             std::cout << "UI: Volume changed to " << volume << "%" << std::endl;
-            bluetooth_audio->setVolume(volume);
+            audio_manager->setVolume(volume);  // Goes directly to BeoCreate DSP!
         }
-        // EQ sliders (for future use)
-        else if(obj == objects.sld_base) {
+        // EQ sliders (now route to simplified manager)
+        else if(obj == objects.sld_base && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
             std::cout << "UI: Bass EQ: " << value << std::endl;
+            audio_manager->setBass(value - 50);  // Convert 0-100 to -50 to +50
         }
-        else if(obj == objects.sld_mid) {
+        else if(obj == objects.sld_mid && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
             std::cout << "UI: Mid EQ: " << value << std::endl;
+            audio_manager->setMid(value - 50);
         }
-        else if(obj == objects.sld_high) {
+        else if(obj == objects.sld_high && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
             std::cout << "UI: High EQ: " << value << std::endl;
+            audio_manager->setHigh(value - 50);
         }
     }
     
@@ -558,9 +553,9 @@ public:
                 bms_connected = serial_comm->isBMSDataValid();
             }
             
-            // Update Bluetooth audio
-            if (bluetooth_audio) {
-                bluetooth_audio->update();
+            // CHANGED: Update simplified audio manager (lightweight)
+            if (audio_manager) {
+                audio_manager->update();
             }
             
             // Update display at regular intervals
@@ -607,8 +602,8 @@ public:
     void stop() {
         running = false;
         
-        if (bluetooth_audio) {
-            bluetooth_audio->shutdown();
+        if (audio_manager) {
+            audio_manager->shutdown();
         }
         
         if (serial_comm) {
@@ -618,7 +613,7 @@ public:
 };
 
 int main() {
-    std::cout << "=== LVGL Automotive Dashboard with Bluetooth Audio ===" << std::endl;
+    std::cout << "=== LVGL Dashboard with BeoCreate 4 + Simple Bluetooth ===" << std::endl;
     
     Dashboard dashboard;
     
