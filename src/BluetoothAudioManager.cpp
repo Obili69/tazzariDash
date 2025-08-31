@@ -202,8 +202,8 @@ bool BluetoothAudioManager::play() {
         return true;
     }
     
-    // Fallback: try generic Bluetooth commands
-    return executeDBusCommand("bluetoothctl -- << 'EOF'\nconnect\nEOF");
+    std::cout << "BT Audio: Play command failed" << std::endl;
+    return false;
 }
 
 bool BluetoothAudioManager::pause() {
@@ -214,6 +214,7 @@ bool BluetoothAudioManager::pause() {
         return true;
     }
     
+    std::cout << "BT Audio: Pause command failed" << std::endl;
     return false;
 }
 
@@ -225,6 +226,7 @@ bool BluetoothAudioManager::stop() {
         return true;
     }
     
+    std::cout << "BT Audio: Stop command failed" << std::endl;
     return false;
 }
 
@@ -425,108 +427,6 @@ void BluetoothAudioManager::updateMediaInfo() {
             }
         } else {
             std::cout << "BT Audio: No MPRIS players active" << std::endl;
-        }
-    }
-    
-    pclose(pipe);
-} | wc -l", "r");
-    if (pipe) {
-        char buffer[16];
-        if (fgets(buffer, sizeof(buffer), pipe)) {
-            int connected_count = std::atoi(buffer);
-            pclose(pipe);
-            current_media.connected = (connected_count > 0);
-            return current_media.connected;
-        }
-        pclose(pipe);
-    }
-    
-    return false;
-}
-
-MediaInfo BluetoothAudioManager::getCurrentMediaInfo() {
-    return current_media;
-}
-
-void BluetoothAudioManager::setMediaStateCallback(std::function<void(const MediaInfo&)> callback) {
-    media_callback = callback;
-}
-
-void BluetoothAudioManager::update() {
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - impl->last_update).count();
-    
-    // Update every 5 seconds to reduce interference with LVGL
-    if (elapsed < 5000) return;
-    
-    impl->last_update = now;
-    
-    // Update connection status (lightweight check)
-    current_media.connected = isConnected();
-    
-    // Only do heavy MPRIS calls if connected
-    if (current_media.connected) {
-        updateMediaInfo();
-    } else {
-        // Reset media info when disconnected
-        current_media.title = "Unknown Track";
-        current_media.artist = "Unknown Artist";
-        current_media.state = PlaybackState::STOPPED;
-    }
-    
-    // Call callback if set
-    if (media_callback) {
-        media_callback(current_media);
-    }
-}
-
-void BluetoothAudioManager::updateMediaInfo() {
-    // Get media info from MPRIS if available
-    FILE* pipe = popen("dbus-send --print-reply --session --dest=org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -o '\"org.mpris.MediaPlayer2.[^\"]*\"' | head -1 | tr -d '\"'", "r");
-    
-    if (!pipe) return;
-    
-    char player_name[256];
-    if (fgets(player_name, sizeof(player_name), pipe)) {
-        player_name[strcspn(player_name, "\n")] = 0;
-        
-        if (strlen(player_name) > 0) {
-            // Get playback status
-            std::string status_cmd = "dbus-send --print-reply --session --dest=" + std::string(player_name) + 
-                                   " /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:PlaybackStatus 2>/dev/null | grep -o '\"[^\"]*\"' | tail -1 | tr -d '\"'";
-            
-            FILE* status_pipe = popen(status_cmd.c_str(), "r");
-            if (status_pipe) {
-                char status[32];
-                if (fgets(status, sizeof(status), status_pipe)) {
-                    status[strcspn(status, "\n")] = 0;
-                    
-                    if (strcmp(status, "Playing") == 0) {
-                        current_media.state = PlaybackState::PLAYING;
-                    } else if (strcmp(status, "Paused") == 0) {
-                        current_media.state = PlaybackState::PAUSED;
-                    } else {
-                        current_media.state = PlaybackState::STOPPED;
-                    }
-                }
-                pclose(status_pipe);
-            }
-            
-            // Get track title (simplified for now)
-            std::string title_cmd = "dbus-send --print-reply --session --dest=" + std::string(player_name) + 
-                                  " /org/mpris/MediaPlayer2 org.freedesktop.DBus.Properties.Get string:org.mpris.MediaPlayer2.Player string:Metadata 2>/dev/null | grep -A1 'xesam:title' | tail -1 | grep -o '\"[^\"]*\"' | tr -d '\"'";
-            
-            FILE* title_pipe = popen(title_cmd.c_str(), "r");
-            if (title_pipe) {
-                char title[256];
-                if (fgets(title, sizeof(title), title_pipe)) {
-                    title[strcspn(title, "\n")] = 0;
-                    if (strlen(title) > 0) {
-                        current_media.title = title;
-                    }
-                }
-                pclose(title_pipe);
-            }
         }
     }
     
