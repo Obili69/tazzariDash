@@ -32,12 +32,21 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(ALSA REQUIRED alsa)
 
-# Bluetooth dependencies (optional)
+# Bluetooth dependencies (with better error handling)
 if(ENABLE_BLUETOOTH)
-    pkg_check_modules(DBUS dbus-1)
+    pkg_check_modules(DBUS REQUIRED dbus-1)
+    pkg_check_modules(PULSE REQUIRED libpulse)
+    
     if(NOT DBUS_FOUND)
-        message(WARNING "D-Bus not found - Bluetooth functionality may be limited")
+        message(FATAL_ERROR "D-Bus development libraries required for Bluetooth support. Install: sudo apt install libdbus-1-dev")
     endif()
+    
+    if(NOT PULSE_FOUND)
+        message(FATAL_ERROR "PulseAudio development libraries required. Install: sudo apt install libpulse-dev")
+    endif()
+    
+    message(STATUS "D-Bus version: ${DBUS_VERSION}")
+    message(STATUS "PulseAudio version: ${PULSE_VERSION}")
 endif()
 
 # LVGL setup
@@ -51,18 +60,22 @@ include_directories(
     ${SDL2_INCLUDE_DIRS}
 )
 
-if(ENABLE_BLUETOOTH AND DBUS_FOUND)
-    include_directories(${DBUS_INCLUDE_DIRS})
+if(ENABLE_BLUETOOTH)
+    include_directories(${DBUS_INCLUDE_DIRS} ${PULSE_INCLUDE_DIRS})
 endif()
 
 # Source files
 file(GLOB_RECURSE UI_SOURCES "ui/*.c" "ui/*.cpp")
 set(SOURCES
     src/main.cpp
-    src/BluetoothAudioManager.cpp
     src/SerialCommunication.cpp
     ${UI_SOURCES}
 )
+
+# Add Bluetooth source conditionally
+if(ENABLE_BLUETOOTH)
+    list(APPEND SOURCES src/BluetoothAudioManager.cpp)
+endif()
 
 # Executable
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -76,8 +89,11 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 # Add Bluetooth libraries if available
-if(ENABLE_BLUETOOTH AND DBUS_FOUND)
-    target_link_libraries(${PROJECT_NAME} ${DBUS_LIBRARIES})
+if(ENABLE_BLUETOOTH)
+    target_link_libraries(${PROJECT_NAME} 
+        ${DBUS_LIBRARIES} 
+        ${PULSE_LIBRARIES}
+    )
 endif()
 
 target_compile_options(${PROJECT_NAME} PRIVATE ${SDL2_CFLAGS_OTHER})
