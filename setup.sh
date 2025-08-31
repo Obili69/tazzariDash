@@ -148,7 +148,7 @@ while true; do
 done
 EOF
 
-chmod +x /usr/bin/bluetooth-a2dp-sink
+sudo chmod +x /usr/bin/bluetooth-a2dp-sink
 
 sudo tee /etc/systemd/system/bluetooth-a2dp.service > /dev/null << 'EOF'
 [Unit]
