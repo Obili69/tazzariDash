@@ -317,7 +317,20 @@ void BluetoothAudioManager::disconnectCurrent() {
 
 bool BluetoothAudioManager::isConnected() {
     // Simple check: look for any connected Bluetooth audio device
-    FILE* pipe = popen("bluetoothctl devices Connected | grep -v '^
+    FILE* pipe = popen("bluetoothctl devices Connected | grep -v '^$' | wc -l", "r");
+    if (pipe) {
+        char buffer[16];
+        if (fgets(buffer, sizeof(buffer), pipe)) {
+            int connected_count = std::atoi(buffer);
+            pclose(pipe);
+            current_media.connected = (connected_count > 0);
+            return current_media.connected;
+        }
+        pclose(pipe);
+    }
+    
+    return false;
+}
 
 MediaInfo BluetoothAudioManager::getCurrentMediaInfo() {
     return current_media;
