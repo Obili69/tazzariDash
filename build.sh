@@ -1,9 +1,8 @@
 #!/bin/bash
-# build.sh - Build script for LVGL Dashboard with SimplifiedAudioManager
+# build.sh - Build LVGL Dashboard with SimplifiedAudioManager
 
 set -e
 
-# Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -13,12 +12,10 @@ log_info() { echo -e "${BLUE}[BUILD]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
-# Default configuration
+# Parse arguments
 BUILD_TYPE="Debug"
 DEPLOYMENT_MODE=false
-SIMPLE_AUDIO_ENABLED=true
 
-# Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --deployment|--prod)
@@ -31,30 +28,15 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="Debug"
             shift
             ;;
-        --release)
-            BUILD_TYPE="Release"
-            shift
-            ;;
-        --no-audio)
-            SIMPLE_AUDIO_ENABLED=false
-            shift
-            ;;
         --help|-h)
             echo "LVGL Dashboard Build Script"
             echo "Usage: $0 [options]"
             echo ""
-            echo "Build modes:"
+            echo "Options:"
             echo "  --dev, --debug      Debug build (windowed, default)"
             echo "  --deployment, --prod Release build (fullscreen)"
-            echo "  --release           Force release build type"
+            echo "  --help, -h          Show this help"
             echo ""
-            echo "Features:"
-            echo "  --no-audio          Disable audio support"
-            echo ""
-            echo "Examples:"
-            echo "  $0                  # Debug build with audio"
-            echo "  $0 --deployment     # Production build"
-            echo "  $0 --dev --no-audio # Debug without audio"
             exit 0
             ;;
         *)
@@ -68,19 +50,14 @@ done
 log_info "Building LVGL Dashboard..."
 log_info "Mode: $([ "$DEPLOYMENT_MODE" = true ] && echo "Deployment (fullscreen)" || echo "Development (windowed)")"
 log_info "Type: $BUILD_TYPE"
-log_info "Audio: $([ "$SIMPLE_AUDIO_ENABLED" = true ] && echo "Simplified Audio Manager" || echo "Disabled")"
 
 # Check prerequisites
 log_info "Checking prerequisites..."
 
+# Check directory structure
 if [ ! -d "src" ] || [ ! -f "src/main.cpp" ]; then
     echo "Error: Source files not found!"
-    echo "Expected directory structure:"
-    echo "  src/main.cpp"
-    echo "  src/SimplifiedAudioManager.cpp"
-    echo "  src/SerialCommunication.cpp"
-    echo "  include/[headers]"
-    echo "  ui/[ui files]"
+    echo "Expected: src/main.cpp"
     exit 1
 fi
 
@@ -100,6 +77,33 @@ for header in "${REQUIRED_HEADERS[@]}"; do
     fi
 done
 
+# Check for required source files
+REQUIRED_SOURCES=("src/SimplifiedAudioManager.cpp" "src/SerialCommunication.cpp")
+for source in "${REQUIRED_SOURCES[@]}"; do
+    if [ ! -f "$source" ]; then
+        echo "Error: Required source file $source not found"
+        exit 1
+    fi
+done
+
+# Check audio system (from setup.sh)
+if [ -f "/usr/local/bin/beocreate-client" ]; then
+    log_success "BeoCreate DSP tools detected"
+elif which amixer >/dev/null 2>&1; then
+    log_warning "ALSA found but no BeoCreate tools (run ./setup.sh for DSP control)"
+else
+    log_warning "No audio control detected (run ./setup.sh first)"
+fi
+
+# Check Bluetooth
+if systemctl is-active a2dp-sink >/dev/null 2>&1; then
+    log_success "A2DP sink service active"
+elif which bluetoothctl >/dev/null 2>&1; then
+    log_warning "Bluetooth available but A2DP sink not running (run ./setup.sh)"
+else
+    log_warning "No Bluetooth detected (run ./setup.sh first)"
+fi
+
 # Create build directory
 mkdir -p build
 cd build
@@ -113,24 +117,7 @@ else
     CMAKE_ARGS="$CMAKE_ARGS -DDEPLOYMENT_BUILD=OFF"
 fi
 
-if [ "$SIMPLE_AUDIO_ENABLED" = true ]; then
-    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_SIMPLE_AUDIO=ON"
-    
-    # Check audio dependencies
-    if ! which amixer >/dev/null 2>&1; then
-        log_warning "ALSA tools missing - installing..."
-        sudo apt install -y alsa-utils
-    fi
-    
-    if ! which bluetoothctl >/dev/null 2>&1; then
-        log_warning "Bluetooth tools missing - installing..."
-        sudo apt install -y bluetooth bluez
-    fi
-else
-    CMAKE_ARGS="$CMAKE_ARGS -DENABLE_SIMPLE_AUDIO=OFF"
-fi
-
-log_info "Running CMake: cmake $CMAKE_ARGS .."
+log_info "Running CMake..."
 cmake $CMAKE_ARGS ..
 
 # Build
@@ -139,24 +126,24 @@ make -j$(nproc)
 
 cd ..
 
-# Determine executable name
+# Determine executable name and create run script
 if [ "$DEPLOYMENT_MODE" = true ]; then
     EXECUTABLE="./build/LVGLDashboard_deployment"
     RUN_SCRIPT="run_deployment.sh"
 else
-    EXECUTABLE="./build/LVGLDashboard_dev"  
+    EXECUTABLE="./build/LVGLDashboard_dev"
     RUN_SCRIPT="run_dev.sh"
 fi
 
 # Create run script
 cat > "$RUN_SCRIPT" << EOF
 #!/bin/bash
-# Generated run script
 if [ -f "$EXECUTABLE" ]; then
-    echo "Starting dashboard..."
+    echo "Starting LVGL Dashboard..."
     $EXECUTABLE
 else
     echo "Executable not found. Run ./build.sh first."
+    exit 1
 fi
 EOF
 chmod +x "$RUN_SCRIPT"
@@ -164,20 +151,28 @@ chmod +x "$RUN_SCRIPT"
 log_success "Build complete!"
 echo ""
 echo "Executable: $EXECUTABLE"
-echo "Quick run: ./$RUN_SCRIPT"
+echo "Run with: ./$RUN_SCRIPT"
 echo ""
 
-if [ "$SIMPLE_AUDIO_ENABLED" = true ]; then
-    echo "Simplified Audio Manager enabled:"
-    echo "  • Volume control via BeoCreate DSP or ALSA"
-    echo "  • Basic Bluetooth controls (play/pause/skip)"
-    echo "  • Pi appears as 'TazzariAudio' on phones"
-    echo "  • Much more reliable than complex setup"
-    echo ""
-    echo "Audio setup:"
-    echo "  ./test_simplified_audio.sh  # Test audio systems"
-    echo "  sudo systemctl start bluetooth  # Enable Bluetooth"
+# Show audio status
+echo "Audio system status:"
+if [ -f "/usr/local/bin/beocreate-client" ]; then
+    echo "  ✓ BeoCreate DSP control available"
+    echo "  ✓ Hardware volume control via DSP"
+    if systemctl is-active sigmatcp >/dev/null 2>&1; then
+        echo "  ✓ SigmaTCP server running"
+    else
+        echo "  - SigmaTCP server not running (will start on next boot)"
+    fi
+else
+    echo "  - No BeoCreate DSP control (software volume only)"
+fi
+
+if systemctl is-active a2dp-sink >/dev/null 2>&1; then
+    echo "  ✓ A2DP sink active (Pi appears as 'TazzariAudio')"
+else
+    echo "  - A2DP sink not active"
 fi
 
 echo ""
-echo "Ready to run! Connect your ESP32 and start the dashboard."
+echo "Ready to run! Connect your ESP32 and pair your phone to 'TazzariAudio'"
