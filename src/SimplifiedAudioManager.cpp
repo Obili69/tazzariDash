@@ -305,50 +305,37 @@ std::string SimplifiedAudioManager::getConnectedDevice() {
 bool SimplifiedAudioManager::togglePlayPause() {
     if (!bluetooth_available) return false;
     
-    // Get current player status from bluetoothctl
-    bool is_playing = false;
-    
-    FILE* pipe = popen("timeout 3s bluetoothctl << EOF\ninfo\nEOF\n 2>/dev/null | grep -i 'Status:' | head -1", "r");
-    if (pipe) {
-        char buffer[256];
-        if (fgets(buffer, sizeof(buffer), pipe)) {
-            std::string status(buffer);
-            is_playing = (status.find("playing") != std::string::npos);
-            std::cout << "Audio: Current status detected: " << (is_playing ? "Playing" : "Not playing") << std::endl;
-        }
-        pclose(pipe);
-    }
-    
-    // If status detection failed, try alternative method with pactl
-    if (!is_playing) {
-        pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
-        if (pipe) {
-            char buffer[16];
-            if (fgets(buffer, sizeof(buffer), pipe)) {
-                int count = std::atoi(buffer);
-                if (count > 0) {
-                    is_playing = true;
-                    std::cout << "Audio: Alternative detection - audio stream active" << std::endl;
-                }
-            }
-            pclose(pipe);
-        }
-    }
-    
-    // Send appropriate command
+    // Use internal state tracking since iOS doesn't reliably expose status
     std::string command;
-    if (is_playing) {
-        command = "timeout 3s bluetoothctl << EOF\nplayer.pause\nEOF";
-        std::cout << "Audio: Detected playing - sending pause command" << std::endl;
-        current_info.state = SimplePlaybackState::PAUSED;
+    bool success = false;
+    
+    if (internal_playing_state) {
+        // Currently playing - send pause
+        command = "timeout 3s bluetoothctl << EOF >/dev/null 2>&1\nplayer.pause\nEOF";
+        success = (system(command.c_str()) == 0);
+        
+        if (success) {
+            internal_playing_state = false;
+            current_info.state = SimplePlaybackState::PAUSED;
+            std::cout << "Audio: Paused playback (internal state tracking)" << std::endl;
+        }
     } else {
-        command = "timeout 3s bluetoothctl << EOF\nplayer.play\nEOF";
-        std::cout << "Audio: Detected not playing - sending play command" << std::endl;
-        current_info.state = SimplePlaybackState::PLAYING;
+        // Currently stopped/paused - send play
+        command = "timeout 3s bluetoothctl << EOF >/dev/null 2>&1\nplayer.play\nEOF";
+        success = (system(command.c_str()) == 0);
+        
+        if (success) {
+            internal_playing_state = true;
+            current_info.state = SimplePlaybackState::PLAYING;
+            std::cout << "Audio: Started playback (internal state tracking)" << std::endl;
+        }
     }
     
-    int result = system(command.c_str());
-    return (result == 0);
+    if (success) {
+        last_command_time = std::chrono::steady_clock::now();
+    }
+    
+    return success;
 }
 
 bool SimplifiedAudioManager::nextTrack() {
@@ -370,15 +357,22 @@ bool SimplifiedAudioManager::checkBluetoothStatus() {
 }
 
 void SimplifiedAudioManager::updateBluetoothInfo() {
+    bool was_connected = current_info.connected;
+    
     if (isBluetoothConnected()) {
         current_info.device_name = getConnectedDevice();
         current_info.connected = true;
         
-        // Get media metadata
+        // Reset internal state when device connects for the first time
+        if (!was_connected) {
+            internal_playing_state = false;
+            current_info.state = SimplePlaybackState::STOPPED;
+            std::cout << "Audio: Bluetooth connected - reset playback state" << std::endl;
+        }
+        
+        // Get media metadata (may not work on iOS, but try anyway)
         updateMediaMetadata();
         
-        // Detect playback state
-        updatePlaybackState();
     } else {
         current_info.device_name = "No Device";
         current_info.connected = false;
@@ -386,6 +380,13 @@ void SimplifiedAudioManager::updateBluetoothInfo() {
         current_info.track_title = "";
         current_info.artist = "";
         current_info.album = "";
+        
+        // Reset internal state when disconnected
+        internal_playing_state = false;
+        
+        if (was_connected) {
+            std::cout << "Audio: Bluetooth disconnected - reset playback state" << std::endl;
+        }
     }
 }
 
@@ -425,33 +426,26 @@ void SimplifiedAudioManager::updateMediaMetadata() {
 }
 
 void SimplifiedAudioManager::updatePlaybackState() {
-    // Method 1: Check bluetoothctl player status
-    FILE* pipe = popen("echo 'info' | bluetoothctl 2>/dev/null | grep 'Status:' | head -1", "r");
-    if (pipe) {
-        char buffer[256];
-        if (fgets(buffer, sizeof(buffer), pipe)) {
-            std::string status(buffer);
-            if (status.find("playing") != std::string::npos) {
-                current_info.state = SimplePlaybackState::PLAYING;
-            } else if (status.find("paused") != std::string::npos) {
-                current_info.state = SimplePlaybackState::PAUSED;
-            } else {
-                current_info.state = SimplePlaybackState::STOPPED;
-            }
-        }
-        pclose(pipe);
-        return;
-    }
+    // Since iOS doesn't reliably expose playback status through Bluetooth,
+    // we rely on internal state tracking instead of external queries.
+    // The internal_playing_state is updated directly in togglePlayPause()
     
-    // Method 2: Check PulseAudio for active Bluetooth sources
-    pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
-    if (pipe) {
-        char buffer[16];
-        if (fgets(buffer, sizeof(buffer), pipe)) {
-            int count = std::atoi(buffer);
-            current_info.state = (count > 0) ? SimplePlaybackState::PLAYING : SimplePlaybackState::STOPPED;
+    // Optional: We could still try PulseAudio as a fallback for other devices
+    if (current_info.state == SimplePlaybackState::UNKNOWN) {
+        FILE* pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
+        if (pipe) {
+            char buffer[16];
+            if (fgets(buffer, sizeof(buffer), pipe)) {
+                int count = std::atoi(buffer);
+                if (count > 0 && !internal_playing_state) {
+                    // Audio stream detected but internal state says not playing
+                    // This could mean audio started from phone directly
+                    internal_playing_state = true;
+                    current_info.state = SimplePlaybackState::PLAYING;
+                }
+            }
+            pclose(pipe);
         }
-        pclose(pipe);
     }
 }
 

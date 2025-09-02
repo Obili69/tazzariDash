@@ -84,6 +84,10 @@ private:
     std::function<void(const SimpleMediaInfo&)> state_callback;
     std::chrono::steady_clock::time_point last_update;
     
+    // Internal state tracking (since iOS doesn't expose status reliably)
+    bool internal_playing_state = false;
+    std::chrono::steady_clock::time_point last_command_time;
+    
     // Configuration
     bool dsp_rest_api_available = false;
     bool bluetooth_available = false;
