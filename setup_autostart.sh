@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup_autostart.sh - Complete auto-start and cursor hiding setup
+# setup_safe_autostart.sh - Safe auto-start that won't brick the system
 
 set -e
 
@@ -12,161 +12,149 @@ log_info() { echo -e "${BLUE}[AUTOSTART]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
-SERVICE_NAME="tazzari-dashboard"
 DASHBOARD_PATH="$(pwd)"
-USER="pi"
 
-log_info "Setting up TazzariAudio Dashboard auto-start..."
+log_info "Setting up safe auto-start for TazzariAudio Dashboard..."
 
-# Check if we have the deployment executable
+# 1. Build deployment version first
 if [ ! -f "build/LVGLDashboard_deployment" ]; then
-    echo "Error: Deployment executable not found!"
-    echo "Run: ./build.sh --deployment"
-    exit 1
+    log_info "Building deployment version..."
+    ./build.sh --deployment
 fi
 
-# 1. Install cursor hiding tools
+# 2. Install cursor hiding tools
 log_info "Installing cursor hiding tools..."
-sudo apt update -qq
-sudo apt install -y unclutter
+sudo apt install -y unclutter xinput
 
-# 2. Create cursor hiding service
-log_info "Creating cursor hiding service..."
-sudo tee /etc/systemd/system/hide-cursor.service > /dev/null <<EOF
-[Unit]
-Description=Hide Mouse Cursor for TazzariAudio Dashboard
-After=graphical-session.target
-Requires=graphical-session.target
+# 3. Create startup script (NOT a systemd service)
+log_info "Creating startup script..."
 
-[Service]
-Type=simple
-User=$USER
-Environment=DISPLAY=:0
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-ExecStart=/usr/bin/unclutter -idle 0.1 -root -noevents
-Restart=always
-RestartSec=1
+cat > ~/start_tazzari_dashboard.sh << EOF
+#!/bin/bash
+# TazzariAudio Dashboard startup script
 
-[Install]
-WantedBy=graphical.target
+# Wait for system to be fully ready
+sleep 10
+
+# Hide cursor using multiple methods
+export SDL_VIDEO_CURSOR=0
+export SDL_MOUSE_CURSOR=0
+
+# Start unclutter to hide cursor
+unclutter -idle 0.1 -root -noevents &
+
+# Disable mouse input entirely for automotive use
+xinput --list | grep -i mouse | while read line; do
+    mouse_id=\$(echo "\$line" | grep -o 'id=[0-9]*' | cut -d= -f2)
+    if [ ! -z "\$mouse_id" ]; then
+        xinput disable \$mouse_id 2>/dev/null || true
+    fi
+done
+
+# Change to dashboard directory
+cd $DASHBOARD_PATH
+
+# Wait for audio services to be ready
+while ! curl -s http://localhost:13141/checksum >/dev/null 2>&1; do
+    echo "Waiting for DSP to be ready..."
+    sleep 2
+done
+
+echo "Starting TazzariAudio Dashboard..."
+
+# Start dashboard with error recovery
+while true; do
+    ./build/LVGLDashboard_deployment
+    echo "Dashboard exited, restarting in 3 seconds..."
+    sleep 3
+done
 EOF
 
-# 3. Create X11 cursor configuration
-log_info "Creating X11 cursor configuration..."
-sudo mkdir -p /etc/X11/xorg.conf.d
+chmod +x ~/start_tazzari_dashboard.sh
 
-sudo tee /etc/X11/xorg.conf.d/99-hide-cursor.conf > /dev/null <<'EOF'
-# Hide mouse cursor for automotive dashboard
-Section "InputClass"
-    Identifier "Hide cursor"
-    MatchIsPointer "on"
-    MatchIsTouchpad "off"
-    Option "Cursor" "none"
-EndSection
+# 4. Add to user's desktop autostart (safer than systemd)
+log_info "Adding to desktop autostart..."
+
+mkdir -p ~/.config/autostart
+
+cat > ~/.config/autostart/tazzari-dashboard.desktop << EOF
+[Desktop Entry]
+Type=Application
+Name=TazzariAudio Dashboard
+Comment=Automotive Dashboard with BeoCreate 4 DSP
+Exec=/home/pi/start_tazzari_dashboard.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+StartupNotify=false
 EOF
 
-# 4. Create dashboard auto-start service
-log_info "Creating dashboard auto-start service..."
-sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
-[Unit]
-Description=TazzariAudio Automotive Dashboard
-After=graphical-session.target bluetooth.service sigmatcpserver.service hide-cursor.service
-Wants=bluetooth.service sigmatcpserver.service hide-cursor.service
-Requires=graphical-session.target
-
-[Service]
-Type=simple
-User=$USER
-Group=$USER
-WorkingDirectory=$DASHBOARD_PATH
-Environment=HOME=/home/$USER
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=DISPLAY=:0
-Environment=WAYLAND_DISPLAY=wayland-0
-
-# Start dashboard in deployment mode (fullscreen, no cursor)
-ExecStart=$DASHBOARD_PATH/build/LVGLDashboard_deployment
-
-# Auto-restart if crashes
-Restart=always
-RestartSec=5
-
-# Logging
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=tazzari-dashboard
-
-[Install]
-WantedBy=graphical.target
-EOF
-
-# 5. Enable services
-log_info "Enabling services..."
-sudo systemctl daemon-reload
-sudo systemctl enable hide-cursor.service
-sudo systemctl enable ${SERVICE_NAME}.service
-
-# 6. Create manual control scripts
+# 5. Create control scripts
 log_info "Creating control scripts..."
 
-cat > start_dashboard.sh << 'EOF'
+cat > kill_dashboard.sh << 'EOF'
 #!/bin/bash
-echo "Starting TazzariAudio Dashboard service..."
-sudo systemctl start tazzari-dashboard
-sudo systemctl status tazzari-dashboard --no-pager
+echo "Stopping TazzariAudio Dashboard..."
+pkill -f LVGLDashboard_deployment
+pkill -f start_tazzari_dashboard.sh
+echo "Dashboard stopped."
 EOF
-chmod +x start_dashboard.sh
+chmod +x kill_dashboard.sh
 
-cat > stop_dashboard.sh << 'EOF'
+cat > start_dashboard_manual.sh << 'EOF'
 #!/bin/bash
-echo "Stopping TazzariAudio Dashboard service..."
-sudo systemctl stop tazzari-dashboard
-sudo systemctl status tazzari-dashboard --no-pager
+echo "Starting TazzariAudio Dashboard manually..."
+~/start_tazzari_dashboard.sh &
+echo "Dashboard started in background."
 EOF
-chmod +x stop_dashboard.sh
-
-cat > dashboard_logs.sh << 'EOF'
-#!/bin/bash
-echo "=== TazzariAudio Dashboard Logs ==="
-echo "Press Ctrl+C to exit log view"
-echo ""
-sudo journalctl -u tazzari-dashboard -f --no-pager
-EOF
-chmod +x dashboard_logs.sh
+chmod +x start_dashboard_manual.sh
 
 cat > disable_autostart.sh << 'EOF'
 #!/bin/bash
-echo "Disabling TazzariAudio Dashboard auto-start..."
-sudo systemctl stop tazzari-dashboard
-sudo systemctl disable tazzari-dashboard
-sudo systemctl stop hide-cursor
-sudo systemctl disable hide-cursor
-echo "Auto-start disabled. Use ./start_dashboard.sh to start manually."
+echo "Disabling auto-start..."
+rm -f ~/.config/autostart/tazzari-dashboard.desktop
+./kill_dashboard.sh
+echo "Auto-start disabled. Use ./start_dashboard_manual.sh to start manually."
 EOF
 chmod +x disable_autostart.sh
 
-log_success "Auto-start setup complete!"
+cat > enable_mouse.sh << 'EOF'
+#!/bin/bash
+echo "Re-enabling mouse input..."
+xinput --list | grep -i mouse | while read line; do
+    mouse_id=$(echo "$line" | grep -o 'id=[0-9]*' | cut -d= -f2)
+    if [ ! -z "$mouse_id" ]; then
+        xinput enable $mouse_id 2>/dev/null || true
+        echo "Enabled mouse ID: $mouse_id"
+    fi
+done
+pkill unclutter 2>/dev/null || true
+echo "Mouse input restored."
+EOF
+chmod +x enable_mouse.sh
+
+log_success "Safe auto-start setup complete!"
 log_info ""
 log_info "Configuration:"
-log_info "  ✓ Dashboard auto-starts on boot (fullscreen)"
-log_info "  ✓ Mouse cursor hidden multiple ways"
+log_info "  ✓ Desktop autostart (not systemd service)"
+log_info "  ✓ Mouse cursor hidden and input disabled"
+log_info "  ✓ Waits for DSP to be ready before starting"
 log_info "  ✓ Auto-restart if dashboard crashes"
-log_info "  ✓ Waits for Bluetooth and DSP services"
+log_info "  ✓ Easy to disable if issues occur"
 log_info ""
-log_info "Control scripts created:"
-log_info "  ./start_dashboard.sh     # Start dashboard service"
-log_info "  ./stop_dashboard.sh      # Stop dashboard service"  
-log_info "  ./dashboard_logs.sh      # View live logs"
-log_info "  ./disable_autostart.sh   # Disable auto-start"
+log_info "Control scripts:"
+log_info "  ./kill_dashboard.sh         # Stop dashboard immediately"
+log_info "  ./start_dashboard_manual.sh # Start dashboard manually"
+log_info "  ./disable_autostart.sh      # Disable auto-start"
+log_info "  ./enable_mouse.sh           # Re-enable mouse for debugging"
 log_info ""
-log_info "Service commands:"
-log_info "  sudo systemctl status tazzari-dashboard"
-log_info "  sudo journalctl -u tazzari-dashboard"
+log_info "Safety features:"
+log_info "  • SSH always works (mouse disable doesn't affect SSH)"
+log_info "  • Can disable autostart easily"
+log_info "  • Logs to terminal, not hidden in systemd"
 log_info ""
-log_warning "REBOOT REQUIRED for full auto-start and cursor hiding!"
+log_warning "Test first: ./start_dashboard_manual.sh"
+log_info "If it works well, reboot to test auto-start"
 log_info ""
-log_info "After reboot, the dashboard will:"
-log_info "  1. Wait for Bluetooth and DSP to be ready"
-log_info "  2. Start automatically in fullscreen"
-log_info "  3. Hide the mouse cursor"
-log_info "  4. Restart if it crashes"
+log_info "Emergency recovery:"
+log_info "  SSH in and run: ./disable_autostart.sh"
