@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh - Complete LVGL Dashboard setup (dependencies + Bluetooth audio)
+# setup.sh - Complete LVGL Dashboard setup with HiFiBerry BeoCreate 4 DSP
 
 set -e
 
@@ -7,6 +7,9 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
+
+DEVICE_NAME="TazzariAudio"
+DSP_PROFILE="/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"
 
 log_info() { echo -e "${BLUE}[SETUP]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -17,10 +20,11 @@ if [[ $EUID -eq 0 ]]; then
    exit 1
 fi
 
-log_info "=== Complete LVGL Dashboard Setup ==="
-log_info "This installs everything you need:"
+log_info "=== Complete LVGL Dashboard + HiFiBerry BeoCreate 4 Setup ==="
+log_info "This installs:"
 log_info "  • System dependencies (build tools, libraries)"
-log_info "  • Bluetooth A2DP audio sink (appear as TazzariAudio speaker)"
+log_info "  • HiFiBerry BeoCreate 4 DSP with REST API control"
+log_info "  • Bluetooth A2DP audio sink (TazzariAudio)"
 log_info "  • Serial communication setup"
 log_info "  • LVGL library"
 
@@ -41,7 +45,8 @@ sudo apt install -y \
     build-essential \
     cmake \
     git \
-    pkg-config
+    pkg-config \
+    curl
 
 # Install LVGL dependencies  
 log_info "Installing LVGL dependencies..."
@@ -49,127 +54,149 @@ sudo apt install -y \
     libsdl2-dev \
     libsdl2-image-dev
 
-# Install audio system
-log_info "Installing audio system..."
-sudo apt install -y \
-    libasound2-dev \
-    libpulse-dev \
-    pulseaudio \
-    pulseaudio-utils \
-    alsa-utils
+# Install HiFiBerry + Audio + Bluetooth (UPDATED SECTION)
+log_info "Installing HiFiBerry BeoCreate 4 + Bluetooth..."
 
-# Install Bluetooth A2DP audio sink
-log_info "Installing Bluetooth A2DP audio support..."
+# Install HiFiBerry repository and packages
+curl -Ls https://tinyurl.com/hbosrepo | bash
+sudo apt update -qq
 sudo apt install -y \
+    hifiberry-dsp \
+    hifiberry-dspprofiles \
     bluetooth \
     bluez \
     bluez-tools \
-    bluez-firmware \
-    libbluetooth-dev \
     pulseaudio \
     pulseaudio-module-bluetooth \
-    libdbus-1-dev \
-    dbus-user-session \
-    expect
+    python3-dbus \
+    python3-gi \
+    alsa-utils
 
-# Configure Bluetooth for A2DP audio sink
-log_info "Configuring Bluetooth as TazzariAudio A2DP sink..."
+# Configure boot settings for Beocreate 4
+log_info "Configuring boot settings for BeoCreate 4..."
 
-sudo tee /etc/bluetooth/main.conf > /dev/null << 'EOF'
+# Remove any existing dtparam lines to avoid duplicates
+sudo sed -i '/^dtparam=i2c_arm=/d' /boot/firmware/config.txt
+sudo sed -i '/^dtparam=i2s=/d' /boot/firmware/config.txt  
+sudo sed -i '/^dtparam=spi=/d' /boot/firmware/config.txt
+sudo sed -i '/^dtparam=audio=/d' /boot/firmware/config.txt
+sudo sed -i '/^dtoverlay=hifiberry-dac/d' /boot/firmware/config.txt
+
+sudo tee -a /boot/firmware/config.txt > /dev/null <<EOF
+# TazzariAudio - Beocreate 4 settings
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtparam=spi=on
+dtparam=audio=off
+dtoverlay=hifiberry-dac
+EOF
+
+# Set hostname
+log_info "Setting hostname to $DEVICE_NAME..."
+sudo hostnamectl set-hostname "$DEVICE_NAME"
+sudo sed -i "s/raspberrypi/$DEVICE_NAME/g" /etc/hosts
+
+# Configure Bluetooth for A2DP sink
+log_info "Configuring Bluetooth as $DEVICE_NAME A2DP sink..."
+
+sudo tee /etc/bluetooth/main.conf > /dev/null <<EOF
 [General]
-Name = TazzariAudio
-# Audio device class (renders as headphones/speaker)
-Class = 0x240404
+Name = $DEVICE_NAME
+Class = 0x2C0414
 DiscoverableTimeout = 0
-PairableTimeout = 0
-Discoverable = yes
-Pairable = yes
-AutoEnable = yes
-
-[Policy]
-AutoEnable = yes
-# Re-connect A2DP automatically
-ReconnectUUIDs = 0000110a-0000-1000-8000-00805f9b34fb,0000110b-0000-1000-8000-00805f9b34fb,0000110c-0000-1000-8000-00805f9b34fb,0000110d-0000-1000-8000-00805f9b34fb
-ReconnectAttempts = 7
-ReconnectIntervals = 1,2,4,8,16,32,64
 EOF
 
-# Configure PulseAudio for A2DP sink
-log_info "Configuring PulseAudio to receive Bluetooth audio..."
+# Create A2DP auto-pairing agent
+log_info "Creating Bluetooth A2DP agent..."
 
-mkdir -p ~/.config/pulse
+sudo tee /usr/local/bin/a2dp-agent > /dev/null <<'EOF'
+#!/usr/bin/env python3
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+from gi.repository import GLib
 
-cat > ~/.config/pulse/default.pa << 'EOF'
-#!/usr/bin/pulseaudio -nF
+class Agent(dbus.service.Object):
+    @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid): 
+        return
+    
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s") 
+    def RequestPinCode(self, device): 
+        return "0000"
+    
+    @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
+    def RequestConfirmation(self, device, passkey): 
+        return
+    
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
+    def RequestAuthorization(self, device): 
+        return
+    
+    @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+    def Cancel(self): 
+        return
 
-# Load standard configuration
-.include /etc/pulse/default.pa
-
-# Load Bluetooth A2DP sink module (receive audio FROM phone)
-load-module module-bluetooth-policy
-load-module module-bluetooth-discover
-
-# CRITICAL: Load loopback to route Bluetooth audio to analog jack
-# This pipes incoming Bluetooth audio directly to your car speakers
-load-module module-loopback latency_msec=50
-
-# Set analog jack as default output (never route to Bluetooth speakers)
-set-default-sink alsa_output.platform-bcm2835_audio.analog-stereo
+dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+bus = dbus.SystemBus()
+agent = Agent(bus, "/test/agent")
+manager = dbus.Interface(bus.get_object("org.bluez", "/org/bluez"), "org.bluez.AgentManager1")
+manager.RegisterAgent("/test/agent", "NoInputNoOutput")
+manager.RequestDefaultAgent("/test/agent")
+GLib.MainLoop().run()
 EOF
+
+sudo chmod +x /usr/local/bin/a2dp-agent
 
 # Create A2DP service
-log_info "Creating A2DP audio sink service..."
-
-sudo tee /usr/bin/bluetooth-a2dp-sink << 'EOF'
-#!/bin/bash
-# A2DP sink service
-
-# Configure Bluetooth controller  
-hciconfig hci0 up
-hciconfig hci0 piscan
-hciconfig hci0 sspmode 1
-
-# Start bluetoothctl agent for auto-pairing
-bluetoothctl << BTCTL_EOF
-power on
-discoverable on
-pairable on
-agent NoInputNoOutput
-default-agent
-BTCTL_EOF
-
-# Keep service running
-while true; do
-    # Check if we need to restart discoverable mode
-    if ! bluetoothctl show | grep -q "Discoverable: yes"; then
-        bluetoothctl discoverable on
-    fi
-    sleep 30
-done
-EOF
-
-sudo chmod +x /usr/bin/bluetooth-a2dp-sink
-
-sudo tee /etc/systemd/system/bluetooth-a2dp.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/a2dp-agent.service > /dev/null <<EOF
 [Unit]
-Description=Bluetooth A2DP Audio Sink
-After=bluetooth.service pulseaudio.service
-Requires=bluetooth.service
+Description=Bluetooth A2DP Agent
+After=bluetooth.service
 
 [Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/bluetooth-a2dp-sink
+ExecStart=/usr/local/bin/a2dp-agent
 Restart=always
-RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Enable Bluetooth services
-sudo systemctl enable bluetooth
-sudo systemctl enable bluetooth-a2dp
+# Make Bluetooth discoverable script
+sudo tee /usr/local/bin/make-discoverable > /dev/null <<'EOF'
+#!/bin/bash
+sleep 5
+bluetoothctl power on
+bluetoothctl discoverable on
+bluetoothctl pairable on
+EOF
+
+sudo chmod +x /usr/local/bin/make-discoverable
+
+# Create service to ensure discoverability after boot
+sudo tee /etc/systemd/system/bluetooth-discoverable.service > /dev/null <<EOF
+[Unit]
+Description=Make Bluetooth Discoverable
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/make-discoverable
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Enable services
+log_info "Enabling HiFiBerry and Bluetooth services..."
+sudo systemctl daemon-reload
+sudo systemctl enable bluetooth a2dp-agent sigmatcpserver bluetooth-discoverable
+
+# Make discoverable now
+log_info "Making device discoverable..."
+/usr/local/bin/make-discoverable &
 
 # Install serial tools
 log_info "Installing serial communication tools..."
@@ -230,47 +257,42 @@ echo "  (Ctrl+A then K then Y to exit)"
 EOF
 chmod +x test_serial.sh
 
-# Audio routing script
-cat > route_audio.sh << 'EOF'
+# DSP setup script (to run after reboot)
+cat > setup_dsp.sh << 'EOF'
 #!/bin/bash
-# Route all audio (including Bluetooth) to analog jack
+echo "=== Setting up BeoCreate 4 DSP Profile ==="
+echo "Loading universal profile..."
 
-echo "Routing audio to car speakers via 3.5mm jack..."
+# Wait for SigmaTCP server to be ready
+sleep 5
 
-# Ensure PulseAudio is running
-pulseaudio --check || pulseaudio --start
+# Load the DSP profile via REST API
+curl -s -X POST http://localhost:13141/dspprofile \
+  -H "Content-Type: application/json" \
+  -d '{"file": "/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"}' && \
+echo "✓ DSP profile loaded successfully" || \
+echo "✗ DSP profile loading failed"
 
-# Force default sink to analog jack
-pactl set-default-sink alsa_output.platform-bcm2835_audio.analog-stereo 2>/dev/null ||
-pactl set-default-sink alsa_output.platform-bcm2835_headphones.analog-stereo 2>/dev/null ||
-pactl set-default-sink 0
-
-# Move ALL existing audio streams to analog jack
-pactl list short sink-inputs | cut -f1 | while read input; do
-    pactl move-sink-input "$input" @DEFAULT_SINK@ 2>/dev/null || true
-done
-
-echo "✓ All audio routed to analog jack (car speakers)"
 echo ""
-echo "Current audio setup:"
-echo "Default sink: $(pactl get-default-sink)"
-echo "Available sinks:"
-pactl list sinks short
+echo "Testing DSP REST API..."
+curl -s http://localhost:13141/metadata | python3 -m json.tool 2>/dev/null && \
+echo "✓ DSP REST API working" || \
+echo "✗ DSP REST API not responding"
 EOF
-chmod +x route_audio.sh
+chmod +x setup_dsp.sh
 
-# Simple pairing helper
+# Bluetooth pairing helper
 cat > pair_phone.sh << 'EOF'
 #!/bin/bash
 echo "=== TazzariAudio Bluetooth Pairing ==="
 echo ""
-echo "Your Pi is now 'TazzariAudio' - appears as speakers/headphones"
+echo "Your Pi is now 'TazzariAudio' - HiFiBerry BeoCreate 4 DSP"
 echo ""
 echo "On your phone:"
 echo "  1. Settings → Bluetooth"
 echo "  2. Look for 'TazzariAudio'"
 echo "  3. Tap to connect (no PIN needed)"
-echo "  4. Play music - TazzariAudio should appear in audio output options"
+echo "  4. Play music - should route through BeoCreate 4 DSP"
 echo ""
 echo "Current Bluetooth status:"
 hciconfig hci0 2>/dev/null | grep -E "(Name|UP|RUNNING)" || echo "Bluetooth not ready"
@@ -278,9 +300,8 @@ echo ""
 echo "Connected devices:"
 bluetoothctl devices Connected 2>/dev/null || echo "No devices connected"
 echo ""
-echo "If TazzariAudio doesn't appear:"
-echo "  sudo systemctl restart bluetooth-a2dp"
-echo "  ./route_audio.sh"
+echo "DSP REST API status:"
+curl -s http://localhost:13141/checksum >/dev/null && echo "✓ DSP API responding" || echo "✗ DSP API not ready"
 EOF
 chmod +x pair_phone.sh
 
@@ -294,56 +315,22 @@ echo "Clean complete!"
 EOF
 chmod +x clean.sh
 
-# Start Bluetooth services
-log_info "Starting Bluetooth services..."
-
-# Restart services
-sudo systemctl restart bluetooth
-sleep 2
-sudo systemctl start bluetooth-a2dp
-
-# Restart PulseAudio
-pulseaudio --kill 2>/dev/null || true
-sleep 1
-pulseaudio --start
-
-# Configure Bluetooth controller
-sudo hciconfig hci0 name 'TazzariAudio' 2>/dev/null || true
-sudo hciconfig hci0 class 0x240404 2>/dev/null || true
-
-# Make discoverable
-bluetoothctl power on 2>/dev/null || true
-bluetoothctl discoverable on 2>/dev/null || true
-bluetoothctl pairable on 2>/dev/null || true
-
-log_success "=== Complete Setup Finished! ==="
+log_success "=== Initial Setup Complete! ==="
 log_info ""
 log_info "✓ Dependencies installed"
-log_info "✓ LVGL library ready (v9.0)"
+log_info "✓ HiFiBerry BeoCreate 4 configured"
 log_info "✓ Bluetooth A2DP configured (TazzariAudio)"
+log_info "✓ LVGL library ready (v9.0)"
 log_info "✓ Serial communication ready"
 log_info "✓ Helper scripts created"
 log_info ""
-log_warning "IMPORTANT: LOGOUT and LOGIN to apply permissions!"
+log_warning "CRITICAL: REBOOT REQUIRED for DSP hardware to initialize!"
 log_info ""
-log_info "After logout/login:"
+log_info "After reboot:"
+log_info "  ./setup_dsp.sh          # Load DSP profile (run once)"
 log_info "  ./build.sh              # Build dashboard"
 log_info "  ./pair_phone.sh         # Pair your phone"
-log_info "  ./route_audio.sh        # Route audio to speakers"
 log_info "  ./test_serial.sh        # Test ESP32 connection"
 log_info ""
-log_info "Build options:"
-log_info "  ./build.sh              # Development (windowed)"
-log_info "  ./build.sh --deployment # Production (fullscreen)"
-log_info ""
-
-# Show current status
-echo "Current status:"
-systemctl is-active bluetooth >/dev/null && echo "✓ Bluetooth: Active" || echo "✗ Bluetooth: Failed"
-systemctl is-active bluetooth-a2dp >/dev/null && echo "✓ A2DP Sink: Active" || echo "✗ A2DP Sink: Failed"  
-pulseaudio --check && echo "✓ PulseAudio: Running" || echo "✗ PulseAudio: Not running"
-hciconfig hci0 >/dev/null 2>&1 && echo "✓ Bluetooth Controller: Ready" || echo "✗ Bluetooth Controller: Not ready"
-
-log_info ""
-log_info "Your Pi should now appear as 'TazzariAudio' on phones!"
-log_warning "Remember: LOGOUT/LOGIN required for serial port access"
+log_info "The Pi will appear as 'TazzariAudio' with BeoCreate 4 DSP control"
+log_warning "REBOOT NOW: sudo reboot"

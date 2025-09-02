@@ -31,6 +31,7 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(ALSA REQUIRED alsa)
+pkg_check_modules(CURL REQUIRED libcurl)
 
 # LVGL setup
 set(LV_CONF_PATH ${CMAKE_CURRENT_SOURCE_DIR}/include/lv_conf.h CACHE STRING "" FORCE)
@@ -41,6 +42,7 @@ include_directories(
     include/
     ui/
     ${SDL2_INCLUDE_DIRS}
+    ${CURL_INCLUDE_DIRS}
 )
 
 # Source files
@@ -49,13 +51,15 @@ file(GLOB_RECURSE UI_SOURCES "ui/*.c" "ui/*.cpp")
 set(SOURCES
     src/main.cpp
     src/SerialCommunication.cpp
-    ${UI_SOURCES}
 )
 
 # Add SimplifiedAudioManager if enabled
 if(ENABLE_SIMPLE_AUDIO)
     list(APPEND SOURCES src/SimplifiedAudioManager.cpp)
 endif()
+
+# Add UI sources
+list(APPEND SOURCES ${UI_SOURCES})
 
 # Executable
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -66,9 +70,13 @@ target_link_libraries(${PROJECT_NAME}
     pthread
     ${SDL2_LIBRARIES}
     ${ALSA_LIBRARIES}
+    ${CURL_LIBRARIES}
 )
 
-target_compile_options(${PROJECT_NAME} PRIVATE ${SDL2_CFLAGS_OTHER})
+target_compile_options(${PROJECT_NAME} PRIVATE 
+    ${SDL2_CFLAGS_OTHER}
+    ${CURL_CFLAGS_OTHER}
+)
 
 # Set output names based on build type
 if(DEPLOYMENT_BUILD)
