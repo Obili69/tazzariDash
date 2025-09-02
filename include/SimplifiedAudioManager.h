@@ -15,9 +15,13 @@ enum class SimplePlaybackState {
 
 struct SimpleMediaInfo {
     std::string device_name = "No Device";
+    std::string track_title = "";
+    std::string artist = "";
+    std::string album = "";
     SimplePlaybackState state = SimplePlaybackState::STOPPED;
     bool connected = false;
     int volume = 50;
+    std::string album_art_path = ""; // Future: path to downloaded album art
 };
 
 class SimplifiedAudioManager {
@@ -72,6 +76,8 @@ private:
     // Bluetooth Control
     bool checkBluetoothStatus();
     void updateBluetoothInfo();
+    void updateMediaMetadata();
+    void updatePlaybackState();
     
     // State
     SimpleMediaInfo current_info;

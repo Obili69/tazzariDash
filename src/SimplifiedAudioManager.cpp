@@ -305,8 +305,45 @@ std::string SimplifiedAudioManager::getConnectedDevice() {
 bool SimplifiedAudioManager::togglePlayPause() {
     if (!bluetooth_available) return false;
     
-    std::cout << "Audio: Toggle play/pause" << std::endl;
-    return (system("echo 'player.play' | bluetoothctl > /dev/null 2>&1") == 0);
+    // Get current player status
+    FILE* pipe = popen("bluetoothctl show | grep -q 'Powered: yes' && echo 'info' | bluetoothctl 2>/dev/null | grep -i 'Status:' | head -1", "r");
+    bool is_playing = false;
+    
+    if (pipe) {
+        char buffer[256];
+        if (fgets(buffer, sizeof(buffer), pipe)) {
+            std::string status(buffer);
+            is_playing = (status.find("playing") != std::string::npos);
+        }
+        pclose(pipe);
+    }
+    
+    // Alternative method: check if any A2DP source is active
+    if (!is_playing) {
+        pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
+        if (pipe) {
+            char buffer[16];
+            if (fgets(buffer, sizeof(buffer), pipe)) {
+                int count = std::atoi(buffer);
+                is_playing = (count > 0);
+            }
+            pclose(pipe);
+        }
+    }
+    
+    // Send appropriate command
+    std::string command;
+    if (is_playing) {
+        command = "echo 'player.pause' | bluetoothctl > /dev/null 2>&1";
+        std::cout << "Audio: Pausing playback" << std::endl;
+        current_info.state = SimplePlaybackState::PAUSED;
+    } else {
+        command = "echo 'player.play' | bluetoothctl > /dev/null 2>&1";
+        std::cout << "Audio: Starting playback" << std::endl;
+        current_info.state = SimplePlaybackState::PLAYING;
+    }
+    
+    return (system(command.c_str()) == 0);
 }
 
 bool SimplifiedAudioManager::nextTrack() {
@@ -331,11 +368,85 @@ void SimplifiedAudioManager::updateBluetoothInfo() {
     if (isBluetoothConnected()) {
         current_info.device_name = getConnectedDevice();
         current_info.connected = true;
-        current_info.state = SimplePlaybackState::UNKNOWN;
+        
+        // Get media metadata
+        updateMediaMetadata();
+        
+        // Detect playback state
+        updatePlaybackState();
     } else {
         current_info.device_name = "No Device";
         current_info.connected = false;
         current_info.state = SimplePlaybackState::STOPPED;
+        current_info.track_title = "";
+        current_info.artist = "";
+        current_info.album = "";
+    }
+}
+
+void SimplifiedAudioManager::updateMediaMetadata() {
+    // Get current track info from bluetoothctl
+    FILE* pipe = popen("echo 'info' | bluetoothctl 2>/dev/null | grep -E '(Title|Artist|Album):'", "r");
+    if (pipe) {
+        char buffer[512];
+        while (fgets(buffer, sizeof(buffer), pipe)) {
+            std::string line(buffer);
+            
+            if (line.find("Title:") != std::string::npos) {
+                size_t pos = line.find("Title:") + 6;
+                current_info.track_title = line.substr(pos);
+                current_info.track_title.erase(current_info.track_title.find_last_not_of(" \n\r\t") + 1);
+            } else if (line.find("Artist:") != std::string::npos) {
+                size_t pos = line.find("Artist:") + 7;
+                current_info.artist = line.substr(pos);
+                current_info.artist.erase(current_info.artist.find_last_not_of(" \n\r\t") + 1);
+            } else if (line.find("Album:") != std::string::npos) {
+                size_t pos = line.find("Album:") + 6;
+                current_info.album = line.substr(pos);
+                current_info.album.erase(current_info.album.find_last_not_of(" \n\r\t") + 1);
+            }
+        }
+        pclose(pipe);
+    }
+    
+    // Debug output for media info
+    if (!current_info.track_title.empty()) {
+        static std::string last_track = "";
+        if (last_track != current_info.track_title) {
+            std::cout << "Audio: Now playing - " << current_info.artist << " - " << current_info.track_title << std::endl;
+            last_track = current_info.track_title;
+        }
+    }
+}
+
+void SimplifiedAudioManager::updatePlaybackState() {
+    // Method 1: Check bluetoothctl player status
+    FILE* pipe = popen("echo 'info' | bluetoothctl 2>/dev/null | grep 'Status:' | head -1", "r");
+    if (pipe) {
+        char buffer[256];
+        if (fgets(buffer, sizeof(buffer), pipe)) {
+            std::string status(buffer);
+            if (status.find("playing") != std::string::npos) {
+                current_info.state = SimplePlaybackState::PLAYING;
+            } else if (status.find("paused") != std::string::npos) {
+                current_info.state = SimplePlaybackState::PAUSED;
+            } else {
+                current_info.state = SimplePlaybackState::STOPPED;
+            }
+        }
+        pclose(pipe);
+        return;
+    }
+    
+    // Method 2: Check PulseAudio for active Bluetooth sources
+    pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
+    if (pipe) {
+        char buffer[16];
+        if (fgets(buffer, sizeof(buffer), pipe)) {
+            int count = std::atoi(buffer);
+            current_info.state = (count > 0) ? SimplePlaybackState::PLAYING : SimplePlaybackState::STOPPED;
+        }
+        pclose(pipe);
     }
 }
 

@@ -283,9 +283,51 @@ public:
     }
     
     // CHANGED: Simplified audio display update
+  // Add this to main.cpp in the updateAudioDisplay function
     void updateAudioDisplay(const SimpleMediaInfo& info) {
-        std::cout << "Audio: " << (info.connected ? "Connected" : "Disconnected") 
-                  << " - " << info.device_name << " Vol:" << info.volume << "%" << std::endl;
+        static SimpleMediaInfo last_info;
+        
+        // Only log when something changes
+        bool changed = (last_info.connected != info.connected || 
+                    last_info.state != info.state ||
+                    last_info.track_title != info.track_title);
+        
+        if (changed) {
+            std::cout << "Audio: " << (info.connected ? "Connected" : "Disconnected") 
+                    << " - " << info.device_name;
+            
+            // Show playback state
+            switch(info.state) {
+                case SimplePlaybackState::PLAYING:
+                    std::cout << " [Playing]";
+                    break;
+                case SimplePlaybackState::PAUSED:
+                    std::cout << " [Paused]";
+                    break;
+                case SimplePlaybackState::STOPPED:
+                    std::cout << " [Stopped]";
+                    break;
+                default:
+                    break;
+            }
+            
+            // Show current track if available
+            if (!info.track_title.empty()) {
+                std::cout << " - " << info.artist << " - " << info.track_title;
+            }
+            
+            std::cout << " Vol:" << info.volume << "%" << std::endl;
+            
+            last_info = info;
+        }
+        
+        // TODO: Update UI labels with track info
+        // if (objects.lbl_track_title) {
+        //     lv_label_set_text(objects.lbl_track_title, info.track_title.c_str());
+        // }
+        // if (objects.lbl_artist) {
+        //     lv_label_set_text(objects.lbl_artist, info.artist.c_str());
+        // }
     }
     
     void updateDisplay() {

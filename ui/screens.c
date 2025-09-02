@@ -306,7 +306,7 @@ void create_screen_main() {
             lv_tabview_set_tab_bar_position(obj, LV_DIR_TOP);
             lv_tabview_set_tab_bar_size(obj, 32);
             lv_obj_set_pos(obj, 25, 188);
-            lv_obj_set_size(obj, 284, 339);
+            lv_obj_set_size(obj, 284, 350);
             {
                 lv_obj_t *parent_obj = obj;
                 {
@@ -341,7 +341,7 @@ void create_screen_main() {
                             // btnPlay
                             lv_obj_t *obj = lv_img_create(parent_obj);
                             objects.btn_play = obj;
-                            lv_obj_set_pos(obj, 110, 234);
+                            lv_obj_set_pos(obj, 110, 247);
                             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
                             lv_img_set_src(obj, &img_play);
                             lv_obj_add_event_cb(obj, action_set_global_eez_event, LV_EVENT_PRESSED, (void *)0);
@@ -351,7 +351,7 @@ void create_screen_main() {
                             // btnSkip
                             lv_obj_t *obj = lv_img_create(parent_obj);
                             objects.btn_skip = obj;
-                            lv_obj_set_pos(obj, 174, 230);
+                            lv_obj_set_pos(obj, 174, 243);
                             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
                             lv_img_set_src(obj, &img_skip);
                             lv_obj_add_event_cb(obj, action_set_global_eez_event, LV_EVENT_PRESSED, (void *)0);
@@ -361,7 +361,7 @@ void create_screen_main() {
                             // btnBack
                             lv_obj_t *obj = lv_img_create(parent_obj);
                             objects.btn_back = obj;
-                            lv_obj_set_pos(obj, 33, 230);
+                            lv_obj_set_pos(obj, 33, 243);
                             lv_obj_set_size(obj, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
                             lv_img_set_src(obj, &img_skip);
                             lv_img_set_angle(obj, 1800);

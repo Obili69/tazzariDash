@@ -315,6 +315,47 @@ echo "Clean complete!"
 EOF
 chmod +x clean.sh
 
+# Media controls test script
+cat > test_media_controls.sh << 'EOF'
+#!/bin/bash
+echo "=== Testing Bluetooth Media Controls ==="
+
+CONNECTED=$(bluetoothctl devices Connected 2>/dev/null | wc -l)
+if [ "$CONNECTED" -eq 0 ]; then
+    echo "❌ No Bluetooth devices connected"
+    echo "Connect your phone first with ./pair_phone.sh"
+    exit 1
+fi
+
+DEVICE=$(bluetoothctl devices Connected 2>/dev/null | head -1 | cut -d' ' -f3-)
+echo "✅ Connected to: $DEVICE"
+echo ""
+
+echo "Getting current media info..."
+echo "info" | bluetoothctl | grep -E "(Title|Artist|Album|Status):" || echo "No media info available"
+echo ""
+
+echo "Testing media controls:"
+echo "1. Play command..."
+echo "player.play" | bluetoothctl >/dev/null 2>&1
+sleep 2
+
+echo "2. Getting status after play..."
+echo "info" | bluetoothctl | grep "Status:" || echo "Status not available"
+echo ""
+
+echo "3. Pause command..." 
+echo "player.pause" | bluetoothctl >/dev/null 2>&1
+sleep 2
+
+echo "4. Getting status after pause..."
+echo "info" | bluetoothctl | grep "Status:" || echo "Status not available"
+echo ""
+
+echo "✅ Media control test complete"
+EOF
+chmod +x test_media_controls.sh
+
 log_success "=== Initial Setup Complete! ==="
 log_info ""
 log_info "✓ Dependencies installed"
