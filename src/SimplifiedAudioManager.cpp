@@ -305,27 +305,31 @@ std::string SimplifiedAudioManager::getConnectedDevice() {
 bool SimplifiedAudioManager::togglePlayPause() {
     if (!bluetooth_available) return false;
     
-    // Get current player status
-    FILE* pipe = popen("bluetoothctl show | grep -q 'Powered: yes' && echo 'info' | bluetoothctl 2>/dev/null | grep -i 'Status:' | head -1", "r");
+    // Get current player status from bluetoothctl
     bool is_playing = false;
     
+    FILE* pipe = popen("timeout 3s bluetoothctl << EOF\ninfo\nEOF\n 2>/dev/null | grep -i 'Status:' | head -1", "r");
     if (pipe) {
         char buffer[256];
         if (fgets(buffer, sizeof(buffer), pipe)) {
             std::string status(buffer);
             is_playing = (status.find("playing") != std::string::npos);
+            std::cout << "Audio: Current status detected: " << (is_playing ? "Playing" : "Not playing") << std::endl;
         }
         pclose(pipe);
     }
     
-    // Alternative method: check if any A2DP source is active
+    // If status detection failed, try alternative method with pactl
     if (!is_playing) {
         pipe = popen("pactl list source-outputs 2>/dev/null | grep -c 'bluez'", "r");
         if (pipe) {
             char buffer[16];
             if (fgets(buffer, sizeof(buffer), pipe)) {
                 int count = std::atoi(buffer);
-                is_playing = (count > 0);
+                if (count > 0) {
+                    is_playing = true;
+                    std::cout << "Audio: Alternative detection - audio stream active" << std::endl;
+                }
             }
             pclose(pipe);
         }
@@ -334,16 +338,17 @@ bool SimplifiedAudioManager::togglePlayPause() {
     // Send appropriate command
     std::string command;
     if (is_playing) {
-        command = "echo 'player.pause' | bluetoothctl > /dev/null 2>&1";
-        std::cout << "Audio: Pausing playback" << std::endl;
+        command = "timeout 3s bluetoothctl << EOF\nplayer.pause\nEOF";
+        std::cout << "Audio: Detected playing - sending pause command" << std::endl;
         current_info.state = SimplePlaybackState::PAUSED;
     } else {
-        command = "echo 'player.play' | bluetoothctl > /dev/null 2>&1";
-        std::cout << "Audio: Starting playback" << std::endl;
+        command = "timeout 3s bluetoothctl << EOF\nplayer.play\nEOF";
+        std::cout << "Audio: Detected not playing - sending play command" << std::endl;
         current_info.state = SimplePlaybackState::PLAYING;
     }
     
-    return (system(command.c_str()) == 0);
+    int result = system(command.c_str());
+    return (result == 0);
 }
 
 bool SimplifiedAudioManager::nextTrack() {
