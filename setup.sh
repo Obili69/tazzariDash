@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh - Complete LVGL Dashboard setup with HiFiBerry BeoCreate 4 DSP
+# setup.sh - Complete LVGL Dashboard setup with HiFiBerry BeoCreate 4 + Auto-start + Splash
 
 set -e
 
@@ -10,6 +10,7 @@ NC='\033[0m'
 
 DEVICE_NAME="TazzariAudio"
 DSP_PROFILE="/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"
+DASHBOARD_PATH="$(pwd)"
 
 log_info() { echo -e "${BLUE}[SETUP]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -20,13 +21,20 @@ if [[ $EUID -eq 0 ]]; then
    exit 1
 fi
 
-log_info "=== Complete LVGL Dashboard + HiFiBerry BeoCreate 4 Setup ==="
+# Check for splash image
+if [ ! -f "img/splash.png" ]; then
+    echo "Error: img/splash.png not found!"
+    echo "Please add your splash image to img/splash.png"
+    exit 1
+fi
+
+log_info "=== Complete TazzariAudio Dashboard Setup ==="
 log_info "This installs:"
-log_info "  • System dependencies (build tools, libraries)"
-log_info "  • HiFiBerry BeoCreate 4 DSP with REST API control"
+log_info "  • HiFiBerry BeoCreate 4 DSP with REST API"
 log_info "  • Bluetooth A2DP audio sink (TazzariAudio)"
-log_info "  • Serial communication setup"
-log_info "  • LVGL library"
+log_info "  • Custom boot splash screen with your image"
+log_info "  • Auto-start dashboard with hidden cursor"
+log_info "  • Serial communication + LVGL library"
 
 read -p "Install everything? (y/N): " -n 1 -r
 echo
@@ -36,7 +44,7 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # Update system
-log_info "Updating package lists..."
+log_info "Updating system packages..."
 sudo apt update
 
 # Install build tools
@@ -46,7 +54,8 @@ sudo apt install -y \
     cmake \
     git \
     pkg-config \
-    curl
+    curl \
+    libcurl4-openssl-dev
 
 # Install LVGL dependencies  
 log_info "Installing LVGL dependencies..."
@@ -54,10 +63,9 @@ sudo apt install -y \
     libsdl2-dev \
     libsdl2-image-dev
 
-# Install HiFiBerry + Audio + Bluetooth (UPDATED SECTION)
+# Install HiFiBerry + Audio + Bluetooth
 log_info "Installing HiFiBerry BeoCreate 4 + Bluetooth..."
 
-# Install HiFiBerry repository and packages
 curl -Ls https://tinyurl.com/hbosrepo | bash
 sudo apt update -qq
 sudo apt install -y \
@@ -70,12 +78,13 @@ sudo apt install -y \
     pulseaudio-module-bluetooth \
     python3-dbus \
     python3-gi \
-    alsa-utils
+    alsa-utils \
+    plymouth \
+    plymouth-themes
 
-# Configure boot settings for Beocreate 4
-log_info "Configuring boot settings for BeoCreate 4..."
+# Configure boot settings for BeoCreate 4
+log_info "Configuring boot settings..."
 
-# Remove any existing dtparam lines to avoid duplicates
 sudo sed -i '/^dtparam=i2c_arm=/d' /boot/firmware/config.txt
 sudo sed -i '/^dtparam=i2s=/d' /boot/firmware/config.txt  
 sudo sed -i '/^dtparam=spi=/d' /boot/firmware/config.txt
@@ -83,7 +92,8 @@ sudo sed -i '/^dtparam=audio=/d' /boot/firmware/config.txt
 sudo sed -i '/^dtoverlay=hifiberry-dac/d' /boot/firmware/config.txt
 
 sudo tee -a /boot/firmware/config.txt > /dev/null <<EOF
-# TazzariAudio - Beocreate 4 settings
+
+# TazzariAudio - HiFiBerry BeoCreate 4
 dtparam=i2c_arm=on
 dtparam=i2s=on
 dtparam=spi=on
@@ -96,8 +106,8 @@ log_info "Setting hostname to $DEVICE_NAME..."
 sudo hostnamectl set-hostname "$DEVICE_NAME"
 sudo sed -i "s/raspberrypi/$DEVICE_NAME/g" /etc/hosts
 
-# Configure Bluetooth for A2DP sink
-log_info "Configuring Bluetooth as $DEVICE_NAME A2DP sink..."
+# Configure Bluetooth
+log_info "Configuring Bluetooth..."
 
 sudo tee /etc/bluetooth/main.conf > /dev/null <<EOF
 [General]
@@ -106,9 +116,7 @@ Class = 0x2C0414
 DiscoverableTimeout = 0
 EOF
 
-# Create A2DP auto-pairing agent
-log_info "Creating Bluetooth A2DP agent..."
-
+# Create A2DP agent
 sudo tee /usr/local/bin/a2dp-agent > /dev/null <<'EOF'
 #!/usr/bin/env python3
 import dbus
@@ -118,24 +126,15 @@ from gi.repository import GLib
 
 class Agent(dbus.service.Object):
     @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
-    def AuthorizeService(self, device, uuid): 
-        return
-    
+    def AuthorizeService(self, device, uuid): return
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="s") 
-    def RequestPinCode(self, device): 
-        return "0000"
-    
+    def RequestPinCode(self, device): return "0000"
     @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
-    def RequestConfirmation(self, device, passkey): 
-        return
-    
+    def RequestConfirmation(self, device, passkey): return
     @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
-    def RequestAuthorization(self, device): 
-        return
-    
+    def RequestAuthorization(self, device): return
     @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
-    def Cancel(self): 
-        return
+    def Cancel(self): return
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 bus = dbus.SystemBus()
@@ -148,21 +147,18 @@ EOF
 
 sudo chmod +x /usr/local/bin/a2dp-agent
 
-# Create A2DP service
+# Create services
 sudo tee /etc/systemd/system/a2dp-agent.service > /dev/null <<EOF
 [Unit]
 Description=Bluetooth A2DP Agent
 After=bluetooth.service
-
 [Service]
 ExecStart=/usr/local/bin/a2dp-agent
 Restart=always
-
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Make Bluetooth discoverable script
 sudo tee /usr/local/bin/make-discoverable > /dev/null <<'EOF'
 #!/bin/bash
 sleep 5
@@ -170,49 +166,133 @@ bluetoothctl power on
 bluetoothctl discoverable on
 bluetoothctl pairable on
 EOF
-
 sudo chmod +x /usr/local/bin/make-discoverable
 
-# Create service to ensure discoverability after boot
 sudo tee /etc/systemd/system/bluetooth-discoverable.service > /dev/null <<EOF
 [Unit]
 Description=Make Bluetooth Discoverable
 After=bluetooth.service
-Requires=bluetooth.service
-
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/make-discoverable
 RemainAfterExit=yes
-
 [Install]
 WantedBy=multi-user.target
 EOF
 
+# Create custom boot splash with your image
+log_info "Creating boot splash with your splash.png..."
+
+sudo mkdir -p /usr/share/plymouth/themes/tazzari
+sudo cp img/splash.png /usr/share/plymouth/themes/tazzari/logo.png
+
+sudo tee /usr/share/plymouth/themes/tazzari/tazzari.plymouth > /dev/null <<'EOF'
+[Plymouth Theme]
+Name=TazzariAudio
+Description=TazzariAudio Electric Vehicle Dashboard
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/tazzari
+ScriptFile=/usr/share/plymouth/themes/tazzari/tazzari.script
+EOF
+
+sudo tee /usr/share/plymouth/themes/tazzari/tazzari.script > /dev/null <<'EOF'
+# TazzariAudio boot splash
+
+Window.SetBackgroundTopColor(0.05, 0.05, 0.05);
+Window.SetBackgroundBottomColor(0.1, 0.1, 0.1);
+
+logo_image = Image("logo.png");
+logo_sprite = Sprite(logo_image);
+logo_sprite.SetX(Window.GetWidth() / 2 - logo_image.GetWidth() / 2);
+logo_sprite.SetY(Window.GetHeight() / 2 - logo_image.GetHeight() / 2);
+
+progress = 0;
+dots_sprite = Sprite();
+
+fun refresh_callback() {
+    progress++;
+    if (progress > 120) progress = 0;
+    
+    dots = "";
+    dot_count = Math.Int(progress / 30) % 4;
+    for (i = 0; i <= dot_count; i++) {
+        dots += "●";
+    }
+    
+    loading_text = "Starting" + dots;
+    loading_image = Image.Text(loading_text, 0.8, 0.8, 0.8, 1, "Ubuntu 16");
+    dots_sprite.SetImage(loading_image);
+    dots_sprite.SetX(Window.GetWidth() / 2 - loading_image.GetWidth() / 2);
+    dots_sprite.SetY(Window.GetHeight() / 2 + logo_image.GetHeight() / 2 + 30);
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+Plymouth.SetMessageFunction(fun(text) {});
+EOF
+
+sudo plymouth-set-default-theme tazzari
+sudo update-initramfs -u
+
+if ! grep -q "splash" /boot/firmware/cmdline.txt; then
+    sudo sed -i 's/$/ splash quiet/' /boot/firmware/cmdline.txt
+fi
+
+# Hide cursor using simple rename method
+log_info "Hiding mouse cursor..."
+if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr" ] && [ ! -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
+    sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak
+    log_success "Cursor hidden"
+fi
+
+# Setup dashboard auto-start
+log_info "Setting up dashboard auto-start..."
+
+cat > ~/start_tazzari_dashboard.sh << EOF
+#!/bin/bash
+sleep 15
+cd $DASHBOARD_PATH
+
+for i in {1..20}; do
+    if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
+        break
+    fi
+    sleep 3
+done
+
+while true; do
+    ./build/LVGLDashboard_deployment
+    sleep 3
+done
+EOF
+
+chmod +x ~/start_tazzari_dashboard.sh
+
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/tazzari-dashboard.desktop << EOF
+[Desktop Entry]
+Type=Application
+Name=TazzariAudio Dashboard
+Exec=/home/pi/start_tazzari_dashboard.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+EOF
+
 # Enable services
-log_info "Enabling HiFiBerry and Bluetooth services..."
 sudo systemctl daemon-reload
 sudo systemctl enable bluetooth a2dp-agent sigmatcpserver bluetooth-discoverable
 
 # Make discoverable now
-log_info "Making device discoverable..."
 /usr/local/bin/make-discoverable &
 
 # Install serial tools
-log_info "Installing serial communication tools..."
-sudo apt install -y \
-    screen \
-    minicom \
-    picocom
-
-# Add user to dialout group
-log_info "Adding user to dialout group..."
+sudo apt install -y screen minicom picocom
 sudo usermod -a -G dialout $USER
 
-# Create udev rules for serial devices
-log_info "Creating udev rules for USB serial devices..."
+# Create udev rules
 sudo tee /etc/udev/rules.d/99-usb-serial.rules > /dev/null << 'EOF'
-# ESP32 and Arduino USB serial devices
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE="0666", GROUP="dialout"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", MODE="0666", GROUP="dialout" 
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE="0666", GROUP="dialout"
@@ -221,18 +301,14 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="239a", MODE="0666", GROUP="dialout"
 EOF
 
 sudo udevadm control --reload-rules
-sudo udevadm trigger
 
-# Setup LVGL if not present
+# Setup LVGL
 if [ ! -d "lvgl" ]; then
     log_info "Setting up LVGL library..."
     git clone --recurse-submodules https://github.com/lvgl/lvgl.git
     cd lvgl
     git checkout release/v9.0
     cd ..
-    log_success "LVGL v9.0 installed"
-else
-    log_info "LVGL already exists"
 fi
 
 # Create helper scripts
