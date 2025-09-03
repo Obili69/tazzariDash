@@ -1,5 +1,3 @@
-// src/MultiAudioManager.cpp - Unified audio manager implementation
-
 #include "MultiAudioManager.h"
 #include <iostream>
 #include <cstdlib>
@@ -7,16 +5,28 @@
 #include <fstream>
 #include <thread>
 #include <cstring>
-#include <alsa/asoundlib.h>
-#include <pulse/pulseaudio.h>
-#include <curl/curl.h>
 
-// Callback for libcurl
+// Conditional includes based on audio hardware
+#ifdef AUDIO_HARDWARE_AUX
+    #include <pulse/pulseaudio.h>
+#endif
+
+#if defined(AUDIO_HARDWARE_DAC) || defined(AUDIO_HARDWARE_AMP4)
+    #include <alsa/asoundlib.h>
+#endif
+
+#ifdef AUDIO_HARDWARE_BEOCREATE4
+    #include <curl/curl.h>
+#endif
+
+// Callback for libcurl (only needed for BeoCreate 4)
+#ifdef AUDIO_HARDWARE_BEOCREATE4
 size_t WriteCallback(void *contents, size_t size, size_t nmemb, std::string *response) {
     size_t total_size = size * nmemb;
     response->append((char*)contents, total_size);
     return total_size;
 }
+#endif
 
 // Base implementation class
 class MultiAudioManager::BaseAudioImpl {
