@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh - Complete LVGL Dashboard setup with HiFiBerry BeoCreate 4 + Auto-start + Splash
+# setup.sh - Multi-Audio Hardware TazzariAudio Dashboard Setup
 
 set -e
 
@@ -7,10 +7,6 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
-
-DEVICE_NAME="TazzariAudio"
-DSP_PROFILE="/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"
-DASHBOARD_PATH="$(pwd)"
 
 log_info() { echo -e "${BLUE}[SETUP]${NC} $1"; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
@@ -21,22 +17,124 @@ if [[ $EUID -eq 0 ]]; then
    exit 1
 fi
 
-# Check for splash image
-if [ ! -f "img/splash.png" ]; then
-    echo "Error: img/splash.png not found!"
-    echo "Please add your splash image to img/splash.png"
-    exit 1
+DEVICE_NAME="TazzariAudio"
+DASHBOARD_PATH="$(pwd)"
+AUDIO_HARDWARE=""
+
+# Parse arguments for audio hardware selection
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --audio-aux)
+            AUDIO_HARDWARE="AUX"
+            shift
+            ;;
+        --audio-dac)
+            AUDIO_HARDWARE="DAC"
+            shift
+            ;;
+        --audio-amp4)
+            AUDIO_HARDWARE="AMP4"
+            shift
+            ;;
+        --audio-beocreate4)
+            AUDIO_HARDWARE="BEOCREATE4"
+            shift
+            ;;
+        --help|-h)
+            echo "TazzariAudio Dashboard Setup with Multi-Audio Hardware Support"
+            echo "Usage: $0 [audio-option]"
+            echo ""
+            echo "Audio Hardware Options:"
+            echo "  --audio-aux         Built-in 3.5mm jack (PulseAudio + alsaeq)"
+            echo "  --audio-dac         HiFiBerry DAC+ (ALSA hardware volume + alsaeq)"
+            echo "  --audio-amp4        HiFiBerry AMP4 (ALSA hardware volume + alsaeq)"
+            echo "  --audio-beocreate4  HiFiBerry BeoCreate 4 (DSP REST API)"
+            echo ""
+            echo "If no option is specified, an interactive menu will be shown."
+            echo ""
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Interactive menu if no hardware specified
+if [ -z "$AUDIO_HARDWARE" ]; then
+    log_info "=== TazzariAudio Dashboard Audio Hardware Selection ==="
+    echo ""
+    echo "Select your audio hardware:"
+    echo "  1) Built-in 3.5mm Jack (AUX)"
+    echo "     - Uses Pi's built-in audio output"
+    echo "     - Software volume control via PulseAudio"
+    echo "     - Software EQ via alsaeq plugin"
+    echo "     - No additional hardware required"
+    echo ""
+    echo "  2) HiFiBerry DAC+ (DAC)"
+    echo "     - High-quality DAC with line output"
+    echo "     - Hardware volume control via ALSA"
+    echo "     - Software EQ via alsaeq plugin"
+    echo "     - Requires external amplifier"
+    echo ""
+    echo "  3) HiFiBerry AMP4 (AMP4)"
+    echo "     - High-quality DAC with built-in amplifier"
+    echo "     - Hardware volume control via ALSA"  
+    echo "     - Software EQ via alsaeq plugin"
+    echo "     - Direct speaker connection"
+    echo ""
+    echo "  4) HiFiBerry BeoCreate 4 DSP (BEOCREATE4)"
+    echo "     - Professional 4-channel DSP + amplifiers"
+    echo "     - Hardware volume control via REST API"
+    echo "     - Hardware EQ via DSP biquad filters"
+    echo "     - Advanced crossover and room correction"
+    echo ""
+    
+    while true; do
+        read -p "Choose [1-4]: " choice
+        case $choice in
+            1) AUDIO_HARDWARE="AUX"; break;;
+            2) AUDIO_HARDWARE="DAC"; break;;
+            3) AUDIO_HARDWARE="AMP4"; break;;
+            4) AUDIO_HARDWARE="BEOCREATE4"; break;;
+            *) echo "Invalid choice. Please enter 1-4.";;
+        esac
+    done
 fi
 
-log_info "=== Complete TazzariAudio Dashboard Setup ==="
-log_info "This installs:"
-log_info "  • HiFiBerry BeoCreate 4 DSP with REST API"
-log_info "  • Bluetooth A2DP audio sink (TazzariAudio)"
-log_info "  • Custom boot splash screen with your image"
-log_info "  • Auto-start dashboard with hidden cursor"
-log_info "  • Serial communication + LVGL library"
+log_info "=== TazzariAudio Dashboard Setup - $AUDIO_HARDWARE ==="
 
-read -p "Install everything? (y/N): " -n 1 -r
+# Display hardware-specific information
+case $AUDIO_HARDWARE in
+    "AUX")
+        log_info "Setting up built-in 3.5mm jack audio system"
+        log_info "  • PulseAudio for volume control"
+        log_info "  • alsaeq plugin for equalization"
+        log_info "  • No additional hardware required"
+        ;;
+    "DAC")
+        log_info "Setting up HiFiBerry DAC+ audio system"
+        log_info "  • Hardware volume control via ALSA 'Digital' mixer"
+        log_info "  • alsaeq plugin for equalization"
+        log_info "  • Requires external amplifier"
+        ;;
+    "AMP4")
+        log_info "Setting up HiFiBerry AMP4 audio system"
+        log_info "  • Hardware volume control via ALSA 'Digital' mixer"
+        log_info "  • alsaeq plugin for equalization"
+        log_info "  • Built-in amplifier for direct speaker connection"
+        ;;
+    "BEOCREATE4")
+        log_info "Setting up HiFiBerry BeoCreate 4 DSP audio system"
+        log_info "  • Hardware volume control via REST API"
+        log_info "  • Hardware EQ via DSP biquad filters"
+        log_info "  • Professional 4-channel amplifier with crossover"
+        ;;
+esac
+
+read -p "Continue with $AUDIO_HARDWARE setup? (y/N): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     log_info "Setup cancelled"
@@ -47,68 +145,117 @@ fi
 log_info "Updating system packages..."
 sudo apt update
 
-# Install build tools
-log_info "Installing build tools..."
+# Install common dependencies
+log_info "Installing common dependencies..."
 sudo apt install -y \
     build-essential \
     cmake \
     git \
     pkg-config \
     curl \
-    libcurl4-openssl-dev
-
-# Install LVGL dependencies  
-log_info "Installing LVGL dependencies..."
-sudo apt install -y \
     libsdl2-dev \
-    libsdl2-image-dev
-
-# Install HiFiBerry + Audio + Bluetooth
-log_info "Installing HiFiBerry BeoCreate 4 + Bluetooth..."
-
-curl -Ls https://tinyurl.com/hbosrepo | bash
-sudo apt update -qq
-sudo apt install -y \
-    hifiberry-dsp \
-    hifiberry-dspprofiles \
+    libsdl2-image-dev \
     bluetooth \
     bluez \
     bluez-tools \
-    pulseaudio \
-    pulseaudio-module-bluetooth \
     python3-dbus \
-    python3-gi \
-    alsa-utils \
-    plymouth \
-    plymouth-themes
+    python3-gi
 
-# Configure boot settings for BeoCreate 4
+# Install audio hardware specific dependencies
+case $AUDIO_HARDWARE in
+    "AUX")
+        log_info "Installing PulseAudio dependencies..."
+        sudo apt install -y \
+            pulseaudio \
+            pulseaudio-module-bluetooth \
+            libasound2-plugin-equal \
+            alsa-utils \
+            libpulse-dev
+        ;;
+        
+    "DAC"|"AMP4")
+        log_info "Installing ALSA dependencies for HiFiBerry..."
+        sudo apt install -y \
+            libasound2-dev \
+            libasound2-plugin-equal \
+            alsa-utils
+        ;;
+        
+    "BEOCREATE4")
+        log_info "Installing HiFiBerry BeoCreate 4 dependencies..."
+        # Install HiFiBerry repository
+        curl -1sLf 'https://dl.cloudsmith.io/public/hifiberry/hifiberry/setup.deb.sh' | sudo -E bash
+        sudo apt update
+        sudo apt install -y \
+            hifiberry-dsp \
+            hifiberry-dspprofiles \
+            sigmatcpserver \
+            libcurl4-openssl-dev
+        ;;
+esac
+
+# Configure boot settings based on audio hardware
 log_info "Configuring boot settings..."
 
-sudo sed -i '/^dtparam=i2c_arm=/d' /boot/firmware/config.txt
-sudo sed -i '/^dtparam=i2s=/d' /boot/firmware/config.txt  
-sudo sed -i '/^dtparam=spi=/d' /boot/firmware/config.txt
-sudo sed -i '/^dtparam=audio=/d' /boot/firmware/config.txt
-sudo sed -i '/^dtoverlay=hifiberry-dac/d' /boot/firmware/config.txt
+# Remove old audio settings
+sudo sed -i '/^dtparam=audio=/d' /boot/firmware/config.txt 2>/dev/null || sudo sed -i '/^dtparam=audio=/d' /boot/config.txt
+sudo sed -i '/^dtoverlay=hifiberry-/d' /boot/firmware/config.txt 2>/dev/null || sudo sed -i '/^dtoverlay=hifiberry-/d' /boot/config.txt
 
-sudo tee -a /boot/firmware/config.txt > /dev/null <<EOF
-
-# TazzariAudio - HiFiBerry BeoCreate 4
+# Add hardware-specific configuration
+case $AUDIO_HARDWARE in
+    "AUX")
+        if [ -f "/boot/firmware/config.txt" ]; then
+            echo "dtparam=audio=on" | sudo tee -a /boot/firmware/config.txt
+        else
+            echo "dtparam=audio=on" | sudo tee -a /boot/config.txt
+        fi
+        log_success "Built-in audio enabled in boot config"
+        ;;
+        
+    "DAC"|"AMP4")
+        if [ -f "/boot/firmware/config.txt" ]; then
+            sudo tee -a /boot/firmware/config.txt > /dev/null <<EOF
+dtparam=audio=off
+dtoverlay=hifiberry-dacplus-std
+EOF
+        else
+            sudo tee -a /boot/config.txt > /dev/null <<EOF
+dtparam=audio=off
+dtoverlay=hifiberry-dacplus-std
+EOF
+        fi
+        log_success "HiFiBerry $AUDIO_HARDWARE configuration added to boot config"
+        ;;
+        
+    "BEOCREATE4")
+        if [ -f "/boot/firmware/config.txt" ]; then
+            sudo tee -a /boot/firmware/config.txt > /dev/null <<EOF
+dtparam=audio=off
 dtparam=i2c_arm=on
 dtparam=i2s=on
 dtparam=spi=on
-dtparam=audio=off
 dtoverlay=hifiberry-dac
 EOF
+        else
+            sudo tee -a /boot/config.txt > /dev/null <<EOF
+dtparam=audio=off
+dtparam=i2c_arm=on
+dtparam=i2s=on
+dtparam=spi=on
+dtoverlay=hifiberry-dac
+EOF
+        fi
+        log_success "HiFiBerry BeoCreate 4 configuration added to boot config"
+        ;;
+esac
 
 # Set hostname
 log_info "Setting hostname to $DEVICE_NAME..."
 sudo hostnamectl set-hostname "$DEVICE_NAME"
-sudo sed -i "s/raspberrypi/$DEVICE_NAME/g" /etc/hosts
+sudo sed -i "s/raspberrypi/$DEVICE_NAME/g" /etc/hosts 2>/dev/null || true
 
-# Configure Bluetooth
+# Configure Bluetooth (common to all hardware)
 log_info "Configuring Bluetooth..."
-
 sudo tee /etc/bluetooth/main.conf > /dev/null <<EOF
 [General]
 Name = $DEVICE_NAME
@@ -180,114 +327,8 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-# Create custom boot splash with your image
-log_info "Creating boot splash with your splash.png..."
-
-sudo mkdir -p /usr/share/plymouth/themes/tazzari
-sudo cp img/splash.png /usr/share/plymouth/themes/tazzari/logo.png
-
-sudo tee /usr/share/plymouth/themes/tazzari/tazzari.plymouth > /dev/null <<'EOF'
-[Plymouth Theme]
-Name=TazzariAudio
-Description=TazzariAudio Electric Vehicle Dashboard
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/tazzari
-ScriptFile=/usr/share/plymouth/themes/tazzari/tazzari.script
-EOF
-
-sudo tee /usr/share/plymouth/themes/tazzari/tazzari.script > /dev/null <<'EOF'
-# TazzariAudio boot splash
-
-Window.SetBackgroundTopColor(0.05, 0.05, 0.05);
-Window.SetBackgroundBottomColor(0.1, 0.1, 0.1);
-
-logo_image = Image("logo.png");
-logo_sprite = Sprite(logo_image);
-logo_sprite.SetX(Window.GetWidth() / 2 - logo_image.GetWidth() / 2);
-logo_sprite.SetY(Window.GetHeight() / 2 - logo_image.GetHeight() / 2);
-
-progress = 0;
-dots_sprite = Sprite();
-
-fun refresh_callback() {
-    progress++;
-    if (progress > 120) progress = 0;
-    
-    dots = "";
-    dot_count = Math.Int(progress / 30) % 4;
-    for (i = 0; i <= dot_count; i++) {
-        dots += "●";
-    }
-    
-    loading_text = "Starting" + dots;
-    loading_image = Image.Text(loading_text, 0.8, 0.8, 0.8, 1, "Ubuntu 16");
-    dots_sprite.SetImage(loading_image);
-    dots_sprite.SetX(Window.GetWidth() / 2 - loading_image.GetWidth() / 2);
-    dots_sprite.SetY(Window.GetHeight() / 2 + logo_image.GetHeight() / 2 + 30);
-}
-
-Plymouth.SetRefreshFunction(refresh_callback);
-Plymouth.SetMessageFunction(fun(text) {});
-EOF
-
-sudo plymouth-set-default-theme tazzari
-sudo update-initramfs -u
-
-if ! grep -q "splash" /boot/firmware/cmdline.txt; then
-    sudo sed -i 's/$/ splash quiet/' /boot/firmware/cmdline.txt
-fi
-
-# Hide cursor using simple rename method
-log_info "Hiding mouse cursor..."
-if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr" ] && [ ! -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
-    sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak
-    log_success "Cursor hidden"
-fi
-
-# Setup dashboard auto-start
-log_info "Setting up dashboard auto-start..."
-
-cat > ~/start_tazzari_dashboard.sh << EOF
-#!/bin/bash
-sleep 15
-cd $DASHBOARD_PATH
-
-for i in {1..20}; do
-    if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
-        break
-    fi
-    sleep 3
-done
-
-while true; do
-    ./build/LVGLDashboard_deployment
-    sleep 3
-done
-EOF
-
-chmod +x ~/start_tazzari_dashboard.sh
-
-mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/tazzari-dashboard.desktop << EOF
-[Desktop Entry]
-Type=Application
-Name=TazzariAudio Dashboard
-Exec=/home/pi/start_tazzari_dashboard.sh
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-EOF
-
-# Enable services
-sudo systemctl daemon-reload
-sudo systemctl enable bluetooth a2dp-agent sigmatcpserver bluetooth-discoverable
-
-# Make discoverable now
-/usr/local/bin/make-discoverable &
-
 # Install serial tools
+log_info "Installing serial communication tools..."
 sudo apt install -y screen minicom picocom
 sudo usermod -a -G dialout $USER
 
@@ -311,10 +352,214 @@ if [ ! -d "lvgl" ]; then
     cd ..
 fi
 
-# Create helper scripts
+# Enable services
+sudo systemctl daemon-reload
+
+# Enable Bluetooth services
+sudo systemctl enable bluetooth a2dp-agent bluetooth-discoverable
+
+# Enable hardware-specific services
+if [ "$AUDIO_HARDWARE" = "BEOCREATE4" ]; then
+    sudo systemctl enable sigmatcpserver
+fi
+
+# Create hardware-specific helper scripts
 log_info "Creating helper scripts..."
 
-# Serial test script
+# Universal test script
+cat > test_audio_${AUDIO_HARDWARE,,}.sh << EOF
+#!/bin/bash
+echo "=== $AUDIO_HARDWARE Audio Test ==="
+
+EOF
+
+case $AUDIO_HARDWARE in
+    "AUX")
+        cat >> test_audio_${AUDIO_HARDWARE,,}.sh << 'EOF'
+echo "Testing built-in 3.5mm jack audio..."
+echo ""
+
+echo "PulseAudio status:"
+if pulseaudio --check 2>/dev/null; then
+    echo "  ✓ PulseAudio running"
+    pactl list sinks short | head -5
+else
+    echo "  ✗ PulseAudio not running"
+    echo "  Starting PulseAudio..."
+    pulseaudio --start
+fi
+
+echo ""
+echo "Testing audio output:"
+echo "Playing test tone to built-in audio..."
+speaker-test -t sine -f 1000 -l 1 -s 1 2>/dev/null || echo "speaker-test not available"
+
+echo ""
+echo "Volume control test:"
+CURRENT_VOL=$(pactl get-sink-volume @DEFAULT_SINK@ | grep -o '[0-9]*%' | head -1 | tr -d '%')
+echo "Current volume: ${CURRENT_VOL}%"
+echo "To control volume: pactl set-sink-volume @DEFAULT_SINK@ 50%"
+EOF
+        ;;
+        
+    "DAC"|"AMP4")
+        cat >> test_audio_${AUDIO_HARDWARE,,}.sh << 'EOF'
+echo "Testing HiFiBerry hardware..."
+echo ""
+
+echo "ALSA devices:"
+aplay -l | grep -i hifiberry || echo "  ✗ HiFiBerry device not found"
+
+echo ""
+echo "ALSA mixer controls:"
+if amixer | grep -q "Digital"; then
+    echo "  ✓ 'Digital' volume control found"
+    CURRENT_VOL=$(amixer get Digital | grep -o '[0-9]*%' | head -1)
+    echo "  Current volume: $CURRENT_VOL"
+else
+    echo "  ✗ 'Digital' volume control not found"
+fi
+
+echo ""
+echo "Testing audio output:"
+echo "Playing test tone to HiFiBerry..."
+speaker-test -D hw:0,0 -t sine -f 1000 -l 1 -s 1 2>/dev/null || echo "Test failed - check hardware connection"
+
+echo ""
+echo "Volume control commands:"
+echo "  Set volume: amixer set Digital 80%"
+echo "  Get volume: amixer get Digital"
+EOF
+        ;;
+        
+    "BEOCREATE4")
+        cat >> test_audio_${AUDIO_HARDWARE,,}.sh << 'EOF'
+echo "Testing HiFiBerry BeoCreate 4 DSP..."
+echo ""
+
+echo "SigmaTCP server status:"
+if systemctl is-active sigmatcpserver >/dev/null 2>&1; then
+    echo "  ✓ SigmaTCP server running"
+else
+    echo "  ✗ SigmaTCP server not running"
+    echo "  Start with: sudo systemctl start sigmatcpserver"
+fi
+
+echo ""
+echo "DSP REST API test:"
+if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
+    echo "  ✓ REST API responding"
+    
+    # Get DSP info
+    CHECKSUM=$(curl -s http://localhost:13141/checksum 2>/dev/null | grep -o '"checksum":"[^"]*"' | cut -d'"' -f4)
+    echo "  DSP checksum: $CHECKSUM"
+    
+    # Check if profile is loaded
+    METADATA=$(curl -s http://localhost:13141/metadata 2>/dev/null)
+    if echo "$METADATA" | grep -q "profileName"; then
+        PROFILE=$(echo "$METADATA" | grep -o '"profileName":"[^"]*"' | cut -d'"' -f4)
+        echo "  ✓ Loaded profile: $PROFILE"
+    else
+        echo "  - No DSP profile loaded"
+        echo "    Load profile with: ./setup_dsp_${AUDIO_HARDWARE,,}.sh"
+    fi
+else
+    echo "  ✗ REST API not responding"
+    echo "  Check: sudo systemctl status sigmatcpserver"
+fi
+
+echo ""
+echo "Volume control test:"
+echo "Current DSP status available via REST API"
+echo "Use dashboard controls or setup_dsp_${AUDIO_HARDWARE,,}.sh"
+EOF
+        ;;
+esac
+
+chmod +x test_audio_${AUDIO_HARDWARE,,}.sh
+
+# Create setup DSP script for BeoCreate 4
+if [ "$AUDIO_HARDWARE" = "BEOCREATE4" ]; then
+    cat > setup_dsp_${AUDIO_HARDWARE,,}.sh << 'EOF'
+#!/bin/bash
+echo "=== BeoCreate 4 DSP Profile Setup ==="
+
+# Wait for SigmaTCP server
+echo "Waiting for SigmaTCP server..."
+for i in {1..10}; do
+    if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
+        echo "✓ SigmaTCP server ready"
+        break
+    fi
+    sleep 2
+done
+
+# Load universal profile
+echo "Loading BeoCreate Universal profile..."
+PROFILE_PATH="/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"
+
+if [ -f "$PROFILE_PATH" ]; then
+    curl -s -X POST http://localhost:13141/dspprofile \
+      -H "Content-Type: application/json" \
+      -d "{\"file\": \"$PROFILE_PATH\"}" && \
+    echo "✓ DSP profile loaded successfully" || \
+    echo "✗ DSP profile loading failed"
+else
+    echo "✗ Profile file not found: $PROFILE_PATH"
+    echo "Available profiles:"
+    ls -la /usr/share/hifiberry/dspprofiles/*.xml 2>/dev/null || echo "No profiles found"
+fi
+
+echo ""
+echo "Testing DSP functionality..."
+curl -s http://localhost:13141/metadata | python3 -m json.tool 2>/dev/null | head -20
+EOF
+    chmod +x setup_dsp_${AUDIO_HARDWARE,,}.sh
+fi
+
+# Bluetooth pairing helper (common)
+cat > pair_phone.sh << EOF
+#!/bin/bash
+echo "=== $DEVICE_NAME Bluetooth Pairing ==="
+echo ""
+echo "Your Pi is configured as '$DEVICE_NAME' with $AUDIO_HARDWARE audio"
+echo ""
+echo "On your phone:"
+echo "  1. Settings → Bluetooth"
+echo "  2. Look for '$DEVICE_NAME'"
+echo "  3. Tap to connect (no PIN needed)"
+echo "  4. Play music - audio will route through $AUDIO_HARDWARE"
+echo ""
+echo "Current Bluetooth status:"
+hciconfig hci0 2>/dev/null | grep -E "(Name|UP|RUNNING)" || echo "Bluetooth not ready"
+echo ""
+echo "Connected devices:"
+bluetoothctl devices Connected 2>/dev/null || echo "No devices connected"
+echo ""
+
+EOF
+
+case $AUDIO_HARDWARE in
+    "AUX")
+        echo 'echo "Audio will play through built-in 3.5mm jack"' >> pair_phone.sh
+        ;;
+    "DAC")
+        echo 'echo "Connect external amplifier to HiFiBerry DAC+ output"' >> pair_phone.sh
+        ;;
+    "AMP4")
+        echo 'echo "Connect speakers directly to HiFiBerry AMP4 terminals"' >> pair_phone.sh
+        ;;
+    "BEOCREATE4")
+        cat >> pair_phone.sh << 'EOF'
+echo "DSP status:"
+curl -s http://localhost:13141/checksum >/dev/null && echo "✓ BeoCreate 4 DSP ready" || echo "✗ DSP not ready"
+EOF
+        ;;
+esac
+
+chmod +x pair_phone.sh
+
+# Serial test script (common)
 cat > test_serial.sh << 'EOF'
 #!/bin/bash
 echo "=== Serial Port Test ==="
@@ -333,121 +578,63 @@ echo "  (Ctrl+A then K then Y to exit)"
 EOF
 chmod +x test_serial.sh
 
-# DSP setup script (to run after reboot)
-cat > setup_dsp.sh << 'EOF'
-#!/bin/bash
-echo "=== Setting up BeoCreate 4 DSP Profile ==="
-echo "Loading universal profile..."
-
-# Wait for SigmaTCP server to be ready
-sleep 5
-
-# Load the DSP profile via REST API
-curl -s -X POST http://localhost:13141/dspprofile \
-  -H "Content-Type: application/json" \
-  -d '{"file": "/usr/share/hifiberry/dspprofiles/beocreate-universal-11.xml"}' && \
-echo "✓ DSP profile loaded successfully" || \
-echo "✗ DSP profile loading failed"
-
-echo ""
-echo "Testing DSP REST API..."
-curl -s http://localhost:13141/metadata | python3 -m json.tool 2>/dev/null && \
-echo "✓ DSP REST API working" || \
-echo "✗ DSP REST API not responding"
-EOF
-chmod +x setup_dsp.sh
-
-# Bluetooth pairing helper
-cat > pair_phone.sh << 'EOF'
-#!/bin/bash
-echo "=== TazzariAudio Bluetooth Pairing ==="
-echo ""
-echo "Your Pi is now 'TazzariAudio' - HiFiBerry BeoCreate 4 DSP"
-echo ""
-echo "On your phone:"
-echo "  1. Settings → Bluetooth"
-echo "  2. Look for 'TazzariAudio'"
-echo "  3. Tap to connect (no PIN needed)"
-echo "  4. Play music - should route through BeoCreate 4 DSP"
-echo ""
-echo "Current Bluetooth status:"
-hciconfig hci0 2>/dev/null | grep -E "(Name|UP|RUNNING)" || echo "Bluetooth not ready"
-echo ""
-echo "Connected devices:"
-bluetoothctl devices Connected 2>/dev/null || echo "No devices connected"
-echo ""
-echo "DSP REST API status:"
-curl -s http://localhost:13141/checksum >/dev/null && echo "✓ DSP API responding" || echo "✗ DSP API not ready"
-EOF
-chmod +x pair_phone.sh
-
-# Clean script  
+# Clean script
 cat > clean.sh << 'EOF'
 #!/bin/bash
 echo "Cleaning build artifacts..."
 rm -rf build/
 rm -f run_*.sh
+rm -f LVGLDashboard_*
 echo "Clean complete!"
 EOF
 chmod +x clean.sh
 
-# Media controls test script
-cat > test_media_controls.sh << 'EOF'
-#!/bin/bash
-echo "=== Testing Bluetooth Media Controls ==="
+# Make Bluetooth discoverable now
+/usr/local/bin/make-discoverable &
 
-CONNECTED=$(bluetoothctl devices Connected 2>/dev/null | wc -l)
-if [ "$CONNECTED" -eq 0 ]; then
-    echo "❌ No Bluetooth devices connected"
-    echo "Connect your phone first with ./pair_phone.sh"
-    exit 1
-fi
-
-DEVICE=$(bluetoothctl devices Connected 2>/dev/null | head -1 | cut -d' ' -f3-)
-echo "✅ Connected to: $DEVICE"
-echo ""
-
-echo "Getting current media info..."
-echo "info" | bluetoothctl | grep -E "(Title|Artist|Album|Status):" || echo "No media info available"
-echo ""
-
-echo "Testing media controls:"
-echo "1. Play command..."
-echo "player.play" | bluetoothctl >/dev/null 2>&1
-sleep 2
-
-echo "2. Getting status after play..."
-echo "info" | bluetoothctl | grep "Status:" || echo "Status not available"
-echo ""
-
-echo "3. Pause command..." 
-echo "player.pause" | bluetoothctl >/dev/null 2>&1
-sleep 2
-
-echo "4. Getting status after pause..."
-echo "info" | bluetoothctl | grep "Status:" || echo "Status not available"
-echo ""
-
-echo "✅ Media control test complete"
-EOF
-chmod +x test_media_controls.sh
-
-log_success "=== Initial Setup Complete! ==="
+log_success "=== Setup Complete! ==="
 log_info ""
-log_info "✓ Dependencies installed"
-log_info "✓ HiFiBerry BeoCreate 4 configured"
+log_info "✓ $AUDIO_HARDWARE audio hardware configured"
 log_info "✓ Bluetooth A2DP configured (TazzariAudio)"
 log_info "✓ LVGL library ready (v9.0)"
 log_info "✓ Serial communication ready"
 log_info "✓ Helper scripts created"
 log_info ""
-log_warning "CRITICAL: REBOOT REQUIRED for DSP hardware to initialize!"
+
+case $AUDIO_HARDWARE in
+    "AUX")
+        log_info "Next steps for built-in audio:"
+        log_info "  ./build.sh --audio-aux       # Build for built-in audio"
+        ;;
+    "DAC")
+        log_info "Next steps for HiFiBerry DAC+:"
+        log_info "  ./build.sh --audio-dac       # Build for DAC+"
+        log_info "  Connect external amplifier to DAC+ output"
+        ;;
+    "AMP4")
+        log_info "Next steps for HiFiBerry AMP4:"
+        log_info "  ./build.sh --audio-amp4      # Build for AMP4"
+        log_info "  Connect speakers to AMP4 terminals"
+        ;;
+    "BEOCREATE4")
+        log_info "Next steps for BeoCreate 4:"
+        log_info "  sudo reboot                  # Required for DSP hardware"
+        log_info "  ./setup_dsp_beocreate4.sh    # Load DSP profile (after reboot)"
+        log_info "  ./build.sh --audio-beocreate4 # Build for BeoCreate 4"
+        ;;
+esac
+
 log_info ""
-log_info "After reboot:"
-log_info "  ./setup_dsp.sh          # Load DSP profile (run once)"
-log_info "  ./build.sh              # Build dashboard"
-log_info "  ./pair_phone.sh         # Pair your phone"
-log_info "  ./test_serial.sh        # Test ESP32 connection"
+log_info "Common next steps:"
+log_info "  ./test_audio_${AUDIO_HARDWARE,,}.sh     # Test audio system"
+log_info "  ./pair_phone.sh              # Pair Bluetooth device"
+log_info "  ./test_serial.sh             # Test ESP32 connection"
 log_info ""
-log_info "The Pi will appear as 'TazzariAudio' with BeoCreate 4 DSP control"
-log_warning "REBOOT NOW: sudo reboot"
+
+if [ "$AUDIO_HARDWARE" = "BEOCREATE4" ]; then
+    log_warning "CRITICAL: REBOOT REQUIRED for BeoCreate 4 DSP hardware!"
+    log_warning "REBOOT NOW: sudo reboot"
+else
+    log_info "Hardware configuration complete. You can start building now!"
+    log_info "Or reboot to ensure all settings take effect: sudo reboot"
+fi

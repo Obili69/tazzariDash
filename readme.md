@@ -1,316 +1,286 @@
-# LVGL Tazzari Dashboard with HiFiBerry BeoCreate 4
+# LVGL Tazzari Dashboard with Multi-Audio Hardware Support
 
-Complete automotive dashboard with professional DSP audio, custom boot splash, and auto-start for electric vehicles.
+Modern automotive dashboard with selectable audio hardware: built-in audio, HiFiBerry DAC+, AMP4, or BeoCreate 4 DSP for electric vehicles.
 
 ## Features
 - **Vehicle Data**: Speed, battery, gear, lighting via ESP32 serial
-- **HiFiBerry BeoCreate 4**: Professional 4-channel DSP with REST API control
-- **Hardware Volume**: 0-100% direct DSP register control (not software)  
-- **3-Band EQ**: Bass/Mid/High biquad filters via DSP
-- **Bluetooth Audio**: Phone streams to dashboard → BeoCreate 4 → car speakers
-- **Custom Boot Splash**: Your splash.png shown during Pi boot
-- **Auto-start**: Boots directly to fullscreen dashboard (no desktop visible)
-- **Hidden Cursor**: Professional automotive interface (no mouse pointer)
-- **Real-time Charts**: Voltage/current monitoring with touch controls
+- **Multi-Audio Hardware**: Support for 4 different audio configurations
+- **Universal Controls**: Volume, EQ, and media controls work across all hardware
+- **Bluetooth Audio**: Phone streams music through dashboard to selected audio hardware
+- **Real-time Charts**: Voltage/current monitoring
+- **Touch Controls**: Volume, EQ, media control, trip reset
+
+## Audio Hardware Options
+
+| Hardware | Description | Volume Control | EQ Control | Requirements |
+|----------|-------------|----------------|------------|--------------|
+| **Built-in (AUX)** | Pi's 3.5mm jack | PulseAudio software | alsaeq software | None |
+| **HiFiBerry DAC+** | High-quality DAC | ALSA hardware mixer | alsaeq software | External amplifier |
+| **HiFiBerry AMP4** | DAC + amplifier | ALSA hardware mixer | alsaeq software | Direct speaker connection |
+| **BeoCreate 4** | 4-channel DSP | REST API hardware | DSP biquad filters | 4-channel speaker system |
 
 ## Quick Start
 
 ```bash
-# 1. Add your splash image
-mkdir -p img
-# Copy your splash.png to img/splash.png
-
-# 2. One-time complete setup
+# 1. One-time setup with audio hardware selection
 chmod +x setup.sh
-./setup.sh
+./setup.sh                    # Interactive menu
+# OR
+./setup.sh --audio-amp4       # Direct selection
+
+# 2. Reboot (required for hardware changes)
 sudo reboot
 
-# 3. After reboot - Load DSP profile  
-./setup_dsp.sh
+# 3. Load DSP profile (BeoCreate 4 only)
+./setup_dsp_beocreate4.sh     # If using BeoCreate 4
 
-# 4. Build and run
-./build.sh --deployment
+# 4. Build for your audio hardware  
+./build.sh --audio-amp4       # Build for AMP4
+./build.sh --audio-dac        # Build for DAC+
+./build.sh --audio-aux        # Build for built-in
+./build.sh --audio-beocreate4 # Build for BeoCreate 4
+
+# 5. Connect phone to Bluetooth and run
+./pair_phone.sh               # Bluetooth pairing help
+./run_amp4_dev.sh             # Run development version
 ```
 
-**That's it!** The dashboard will auto-start on every boot with your custom splash screen.
-
-## Complete Boot Sequence
-
-```
-Pi Boot → Custom Splash (your image) → Desktop (hidden) → Dashboard (fullscreen, no cursor)
-```
-
-1. **Boot Splash**: Shows your `img/splash.png` with animated loading dots
-2. **Cursor Hidden**: System-wide cursor removal (elegant file rename method)
-3. **Auto-start**: Dashboard launches automatically in fullscreen
-4. **Audio Ready**: Appears as "TazzariAudio" for Bluetooth pairing
-5. **DSP Control**: Hardware volume and EQ via BeoCreate 4
-
-## Control Scripts
+## Build Examples
 
 ```bash
-./stop_dashboard.sh     # Stop dashboard (show desktop)
-./show_cursor.sh        # Restore cursor for debugging
-./disable_autostart.sh  # Disable auto-start completely
-./pair_phone.sh         # Bluetooth pairing help
-./test_serial.sh        # Check ESP32 connection
+# Development builds (windowed, with cursor)
+./build.sh --dev --audio-aux         # Built-in 3.5mm jack
+./build.sh --dev --audio-dac         # HiFiBerry DAC+
+./build.sh --dev --audio-amp4        # HiFiBerry AMP4
+./build.sh --dev --audio-beocreate4  # BeoCreate 4 DSP
+
+# Production builds (fullscreen, no cursor)
+./build.sh --deployment --audio-amp4        # Production AMP4
+./build.sh --deployment --audio-beocreate4  # Production BeoCreate 4
 ```
 
-## Hardware Requirements
+## Audio System Architectures
 
-- **Platform**: Raspberry Pi 4/5 
-- **Audio**: HiFiBerry BeoCreate 4 (4-channel amplifier + DSP)
-- **Display**: 1024x600 touchscreen (automotive recommended)
-- **Vehicle Data**: ESP32 via USB serial
-- **Speakers**: 4-channel car audio system
-- **Power**: 12V to 5V converter with clean power
-
-## Audio System Architecture
-
+### Built-in Audio (AUX)
 ```
-Phone (Bluetooth) → Pi (TazzariAudio) → BeoCreate 4 DSP → 4 Car Speakers
+Phone (Bluetooth) → Pi (TazzariAudio) → Built-in DAC → 3.5mm Jack → External Amp
                                         ↓
-Dashboard Touch Controls ←→ REST API ←→ Hardware DSP Registers
-(Volume/EQ/Media)          (localhost:13141)  (Real-time Control)
+Dashboard Controls ←→ PulseAudio ←→ alsaeq Plugin ←→ Software Volume/EQ
 ```
 
-## Development vs Production
-
-```bash
-# Development (windowed, cursor visible)
-./build.sh
-./build/LVGLDashboard_dev
-
-# Production (fullscreen, auto-start, no cursor)  
-./build.sh --deployment
-sudo reboot  # Auto-starts
+### HiFiBerry DAC+ / AMP4  
+```
+Phone (Bluetooth) → Pi (TazzariAudio) → HiFiBerry PCM512x → [AMP4: Amplifier] → Speakers
+                                        ↓
+Dashboard Controls ←→ ALSA Mixer ←→ "Digital" Hardware Volume + alsaeq EQ
 ```
 
-## Troubleshooting
-
-```bash
-# Check system status
-curl http://localhost:13141/checksum  # DSP status
-sudo systemctl status sigmatcpserver  # DSP service
-sudo systemctl status a2dp-agent      # Bluetooth agent
-bluetoothctl devices Connected        # Connected devices
-
-# Audio issues
-aplay -l                              # Check audio hardware
-pactl list sinks short               # Check audio routing
-
-# Serial issues  
-./test_serial.sh                      # ESP32 connection
-ls /dev/tty{USB,ACM}*                # Available ports
-
-# Dashboard issues
-./stop_dashboard.sh                   # Stop if hung
-./show_cursor.sh                      # Show cursor for debugging
-sudo reboot                           # Full restart
+### HiFiBerry BeoCreate 4
+```
+Phone (Bluetooth) → Pi (TazzariAudio) → BeoCreate 4 DSP → 4-Channel Amplifiers → Speakers
+                                        ↓
+Dashboard Controls ←→ REST API ←→ SigmaTCP Server ←→ Hardware DSP Registers
 ```
 
-**Common Issues:**
-- **No audio**: Check HiFiBerry hardware connection, run `./setup_dsp.sh`
-- **No serial**: Logout/login after setup for dialout group permissions
-- **Dashboard won't start**: Check `./build.sh --deployment` completed successfully
-- **No Bluetooth**: Pi should appear as "TazzariAudio" in phone settings
-- **Cursor visible**: Run `./show_cursor.sh` then restart desktop
+## Hardware Setup
 
-## Project Structure
-```
-tazzariDash/
-├── img/
-│   └── splash.png              # Your custom splash image
-├── src/                        # C++ source files
-│   ├── main.cpp               # Main dashboard application
-│   ├── SerialCommunication.cpp
-│   └── SimplifiedAudioManager.cpp  # HiFiBerry REST API
-├── include/                   # Header files  
-├── ui/                       # LVGL UI files
-├── lvgl/                     # LVGL library (v9.0)
-├── build/                    # Build output
-├── setup.sh                  # Complete one-time setup
-├── build.sh                  # Build script
-├── setup_dsp.sh              # DSP profile loader
-└── *.sh                      # Control scripts
-```
+### Built-in Audio (AUX)
+- **Hardware**: None required
+- **Boot Config**: `dtparam=audio=on`
+- **Connection**: 3.5mm jack to external amplifier
+- **Volume**: Software control via PulseAudio (0-100%)
+- **EQ**: Software 10-band equalizer via alsaeq
 
-## Technical Details
+### HiFiBerry DAC+ 
+- **Hardware**: HiFiBerry DAC+ + external amplifier
+- **Boot Config**: `dtoverlay=hifiberry-dacplus-std`
+- **Connection**: DAC+ line output to amplifier input
+- **Volume**: Hardware control via ALSA "Digital" mixer (0-100%)
+- **EQ**: Software 10-band equalizer via alsaeq
 
-### Custom Boot Experience
-- **Plymouth Splash**: Your `splash.png` displayed during boot with loading animation
-- **Seamless Transition**: Boot splash → hidden desktop → fullscreen dashboard
-- **Professional Look**: No visible Linux desktop or cursor
+### HiFiBerry AMP4
+- **Hardware**: HiFiBerry AMP4 (built-in amplifier)
+- **Boot Config**: `dtoverlay=hifiberry-dacplus-std`
+- **Connection**: Direct speaker wires to AMP4 terminals
+- **Volume**: Hardware control via ALSA "Digital" mixer (0-100%)
+- **EQ**: Software 10-band equalizer via alsaeq
 
-### Audio Control Architecture
-- **Hardware Volume**: Direct BeoCreate 4 DSP register writes (0-100%)
-- **EQ Filters**: Real-time biquad filter calculation and DSP upload
-- **Media Control**: Bluetooth AVRCP commands with internal state tracking
-- **Auto-pairing**: Python D-Bus agent for seamless phone connection
-
-### Cursor Hiding Method
-- **Simple & Reliable**: Renames cursor file (`left_ptr` → `left_ptr.bak`)
-- **Universal**: Works on X11, Wayland, any display server
-- **Easy Recovery**: Simple file rename to restore functionality
-
-### Dashboard Integration
-- **REST API**: Full HiFiBerry DSP control via libcurl HTTP calls
-- **State Management**: Internal tracking for reliable media play/pause
-- **Data Persistence**: Vehicle odometer and settings auto-save
-- **Real-time Updates**: 100ms refresh rate for smooth vehicle data display
+### HiFiBerry BeoCreate 4
+- **Hardware**: HiFiBerry BeoCreate 4 DSP + 4-channel amplifier
+- **Boot Config**: `dtoverlay=hifiberry-dac` + DSP tools
+- **Connection**: 4 speakers (front L/R, rear L/R) with crossover
+- **Volume**: Hardware control via DSP REST API (0-100%)
+- **EQ**: Hardware 3-band EQ via DSP biquad filters (-10 to +10dB)
 
 ## Development Workflow
 
 ```bash
-# Development mode (windowed, cursor visible)
-./build.sh
-./show_cursor.sh              # If cursor was hidden
-./build/LVGLDashboard_dev
+# Choose your audio hardware during development
+./build.sh --help              # See all options
 
-# Production mode (fullscreen, auto-start)
-./build.sh --deployment
-sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak
-sudo reboot
+# Development cycle
+./build.sh --audio-amp4        # Build for AMP4
+./test_audio_amp4.sh           # Test audio system
+./run_amp4_dev.sh              # Run in window
+
+# Switch hardware easily
+./build.sh --audio-dac         # Now build for DAC+
+./run_dac_dev.sh               # Run with DAC+ configuration
+
+# Production deployment
+./build.sh --deployment --audio-amp4  # Production build
+sudo reboot                            # Auto-starts dashboard
 ```
 
-## Customization
+## Troubleshooting by Hardware
 
-### Splash Screen
-- Replace `img/splash.png` with your custom image
-- Modify Plymouth script in `/usr/share/plymouth/themes/tazzari/tazzari.script`
-- Adjust colors, animations, or text
-
-### Audio Settings
-- EQ band frequencies: Modify `SimplifiedAudioManager.cpp` bass/mid/high frequencies
-- Volume curve: Adjust DSP value calculation in `setDSPVolume()`
-- Additional DSP features: Use HiFiBerry REST API documentation
-
-### Vehicle Data
-- Serial protocol: Modify packet structures in `SerialCommunication.h`
-- New sensors: Extend data structures for additional vehicle systems
-- Display layout: Customize LVGL UI elements
-
-Built with LVGL, SDL2, HiFiBerry BeoCreate 4, and precision engineering for electric vehicles!# LVGL Tazzari Dashboard with HiFiBerry BeoCreate 4
-
-Modern automotive dashboard with Bluetooth audio and professional DSP for electric vehicles.
-
-## Features
-- **Vehicle Data**: Speed, battery, gear, lighting via ESP32 serial
-- **HiFiBerry BeoCreate 4**: Professional 4-channel DSP with REST API control
-- **Hardware Volume Control**: 0-100% via DSP registers (not software)  
-- **3-Band EQ**: Bass/Mid/High frequency control via DSP biquad filters
-- **Bluetooth Audio**: Phone streams music through dashboard to BeoCreate 4 amplifier
-- **Real-time Charts**: Voltage/current monitoring
-- **Touch Controls**: Volume, EQ, media control, trip reset
-
-## Hardware Requirements
-- **Platform**: Raspberry Pi 4/5 
-- **Audio DSP**: HiFiBerry BeoCreate 4 (4-channel amplifier + DSP)
-- **Display**: 1024x600 touchscreen
-- **Vehicle Data**: ESP32 via USB serial
-- **Speakers**: 4-channel car audio system
-
-## Quick Start
-
+### Built-in Audio (AUX)
 ```bash
-# 1. One-time setup (installs HiFiBerry + Bluetooth)
-chmod +x setup.sh
-./setup.sh
-sudo reboot
-
-# 2. After reboot - Load DSP profile
-./setup_dsp.sh
-
-# 3. Build dashboard  
-./build.sh
-
-# 4. Connect phone to Bluetooth
-./pair_phone.sh
-
-# 5. Run dashboard
-./run_dev.sh              # Development (windowed)
-./run_deployment.sh       # Production (fullscreen)
-```
-
-## Audio System Architecture
-
-```
-Phone (Bluetooth A2DP) → Pi (TazzariAudio) → HiFiBerry BeoCreate 4 → 4 Car Speakers
-                                              ↓
-Dashboard Controls ←→ REST API ←→ SigmaTCP Server ←→ DSP Registers
-(Volume/EQ)          (localhost:13141)                (Hardware Control)
-```
-
-## Usage
-- **Volume Control**: Arc control directly adjusts DSP hardware volume (0-100%)
-- **EQ Controls**: Bass/Mid/High sliders create biquad filters on DSP
-- **Media Controls**: Play/pause/skip buttons via Bluetooth
-- **Trip Reset**: Tap trip distance
-- **Bluetooth**: Pi appears as "TazzariAudio" on phones
-
-## Development
-
-```bash
-./build.sh                # Debug build (windowed)
-./build.sh --deployment   # Release build (fullscreen)
-./clean.sh                # Clean build files
-```
-
-## Troubleshooting
-
-```bash
-./test_serial.sh          # Check ESP32 connection
-./setup_dsp.sh            # Reload DSP profile
-./pair_phone.sh           # Bluetooth pairing help
-
-# Check DSP status
-curl http://localhost:13141/checksum
-
-# Check services
-sudo systemctl status sigmatcpserver
-sudo systemctl status a2dp-agent
+./test_audio_aux.sh            # Test built-in audio
+pulseaudio --check             # Check PulseAudio status
+pactl list sinks short         # List audio devices
+speaker-test -t sine -f 1000   # Test audio output
 ```
 
 **Common Issues:**
-- **No serial access**: Logout/login after setup
-- **No DSP control**: Run `./setup_dsp.sh` after reboot
-- **No Bluetooth audio**: Check Pi appears as "TazzariAudio" 
-- **Build errors**: Install libcurl with `sudo apt install libcurl4-openssl-dev`
+- **No audio**: Check 3.5mm connection, restart PulseAudio
+- **No EQ**: Install with `sudo apt install libasound2-plugin-equal`
+- **No volume control**: Check PulseAudio mixer: `pavucontrol`
+
+### HiFiBerry DAC+ / AMP4
+```bash
+./test_audio_dac.sh            # Test DAC+ (or AMP4)
+aplay -l | grep hifiberry      # Check ALSA detection  
+amixer get Digital             # Check hardware volume
+alsamixer                      # Interactive mixer control
+```
+
+**Common Issues:**
+- **Device not detected**: Add `dtoverlay=hifiberry-dacplus-std` to boot config
+- **No volume control**: Check ALSA mixer: `amixer sget Digital`
+- **No EQ**: Run `alsamixer -D equal` after installing alsaeq
+- **Boot config conflict**: Ensure `dtparam=audio=off` (disable built-in)
+
+### HiFiBerry BeoCreate 4
+```bash
+./test_audio_beocreate4.sh     # Test BeoCreate 4 system
+curl http://localhost:13141/checksum    # Test REST API
+sudo systemctl status sigmatcpserver    # Check DSP service
+./setup_dsp_beocreate4.sh      # Load DSP profile
+```
+
+**Common Issues:**
+- **REST API not responding**: Start with `sudo systemctl start sigmatcpserver`
+- **No DSP profile**: Run `./setup_dsp_beocreate4.sh` after reboot
+- **No volume control**: Check DSP profile loaded correctly
+- **Boot config**: Ensure I2C/SPI enabled: `dtparam=i2c_arm=on,i2s=on,spi=on`
+
+### Universal Bluetooth Issues
+```bash
+./pair_phone.sh                # Bluetooth pairing help
+bluetoothctl devices Connected # Check connected devices
+sudo systemctl status a2dp-agent     # Check A2DP service
+```
+
+**Common Issues:**
+- **Phone can't find Pi**: Check `bluetoothctl discoverable on`
+- **Connected but no audio**: Check audio routing to selected hardware
+- **Pairing fails**: Restart Bluetooth: `sudo systemctl restart bluetooth`
 
 ## Project Structure
 ```
 tazzariDash/
-├── src/                    # C++ source files
-│   ├── main.cpp           # Main dashboard application
+├── src/                       # C++ source files
+│   ├── main.cpp              # Main dashboard (uses MultiAudioManager)
 │   ├── SerialCommunication.cpp
-│   └── SimplifiedAudioManager.cpp  # HiFiBerry REST API integration
-├── include/               # Header files  
-├── ui/                   # LVGL UI files
-├── build/                # Build output (generated)
-├── setup.sh              # One-time HiFiBerry + Bluetooth setup
-├── build.sh              # Build script
-├── setup_dsp.sh          # DSP profile loader (generated)
-└── *.sh                  # Helper scripts (generated)
+│   └── MultiAudioManager.cpp # NEW: Unified audio interface
+├── include/                  # Header files  
+│   ├── MultiAudioManager.h   # NEW: Universal audio interface
+│   └── SerialCommunication.h
+├── ui/                      # LVGL UI files
+├── build/                   # Build output (generated)
+├── setup.sh                 # Multi-hardware setup script
+├── build.sh                 # Multi-hardware build script  
+├── test_audio_*.sh          # Hardware-specific test scripts
+├── run_*_dev.sh            # Hardware-specific run scripts
+└── pair_phone.sh           # Bluetooth pairing helper
 ```
 
-## Technical Details
+## Advanced Configuration
 
-### Audio Control
-- **Hardware Volume**: Direct DSP register control (not software mixing)
-- **REST API**: Full HiFiBerry DSP REST API integration via libcurl
-- **EQ Filters**: Real-time biquad filter generation and DSP upload
-- **Automatic Storage**: Volume/EQ settings saved in DSP profile
+### Custom Audio Hardware
+To add support for additional audio hardware, modify:
+1. **MultiAudioManager.h**: Add new `AudioHardware` enum value
+2. **MultiAudioManager.cpp**: Add implementation class  
+3. **CMakeLists.txt**: Add new build configuration
+4. **setup.sh**: Add hardware-specific installation steps
 
-### DSP Integration
-- **Profile**: BeoCreate Universal (4-channel crossover)
-- **Control Protocol**: SigmaTCP → REST API → libcurl
-- **Volume Register**: `volumeControlRegister` from profile metadata
-- **EQ Bands**: PeakingEq filters at 100Hz/1kHz/10kHz
+### Boot Configuration Files
+Audio hardware boot configurations are automatically added to:
+- `/boot/firmware/config.txt` (newer Pi OS)
+- `/boot/config.txt` (older Pi OS)
 
-### Bluetooth Setup
-- **Device Name**: "TazzariAudio" 
-- **Class**: 0x2C0414 (Audio device)
-- **Auto-pairing**: Python D-Bus agent with NoInputNoOutput
-- **A2DP Sink**: Receives audio FROM phones
+### ALSA Configuration
+Hardware-specific ALSA configurations are created in:
+- `/etc/asound.conf` (system-wide ALSA settings)
+- Custom configurations for alsaeq routing
 
-Built with LVGL, SDL2, HiFiBerry BeoCreate 4, and love for electric vehicles! 🚗⚡
+## Audio Quality Comparison
+
+| Hardware | Sample Rate | Bit Depth | SNR | THD+N | Use Case |
+|----------|-------------|-----------|-----|-------|----------|
+| **Built-in** | 48kHz | 16-bit | ~90dB | ~0.05% | Basic audio, development |
+| **DAC+** | 192kHz | 32-bit | ~112dB | ~0.0018% | High-quality line output |
+| **AMP4** | 192kHz | 32-bit | ~112dB | ~0.0018% | Direct speaker drive |
+| **BeoCreate 4** | 192kHz | 32-bit | ~112dB | ~0.0018% | Professional DSP processing |
+
+## Roadmap
+
+- **v1.0**: Multi-audio hardware support ✓
+- **v1.1**: Room correction for BeoCreate 4
+- **v1.2**: Custom DSP filters and crossovers  
+- **v1.3**: Multi-zone audio support
+- **v1.4**: Wireless speaker integration
+- **v2.0**: Advanced vehicle integration (CAN bus)
+
+## Contributing
+
+When adding audio hardware support:
+1. Follow the existing pattern in `MultiAudioManager`
+2. Add hardware-specific implementation class
+3. Update build system and setup scripts
+4. Add comprehensive testing scripts
+5. Update documentation
+
+## License
+
+Built with LVGL, SDL2, and love for electric vehicles! 🚗⚡
+
+## Hardware Compatibility Matrix
+
+| Pi Model | Built-in | DAC+ | AMP4 | BeoCreate 4 | Notes |
+|----------|----------|------|------|-------------|--------|
+| **Pi 4** | ✓ | ✓ | ✓ | ✓ | Full support all hardware |
+| **Pi 5** | ✓ | ✓ | ✓ | ✓ | Use updated overlays |  
+| **Pi 3B+** | ✓ | ✓ | ✓ | Limited | BeoCreate 4 may be slower |
+| **Pi Zero 2** | ✓ | ✓ | ✓ | ✗ | Insufficient processing for DSP |
+
+## Power Requirements
+
+| Hardware | Pi Power | Additional Power | Total |
+|----------|----------|------------------|--------|
+| **Built-in** | 5V/3A | External amp | 15W + amp |
+| **DAC+** | 5V/3A | External amp | 15W + amp |
+| **AMP4** | 5V/3A | None (built-in amp) | 15W |
+| **BeoCreate 4** | 5V/3A | None (built-in amps) | 15W |
+
+**Vehicle Integration**: All configurations work with 12V→5V converters for automotive use.
+
+## Support
+
+- **Hardware Issues**: Check respective test scripts first
+- **Build Issues**: Verify dependencies match selected audio hardware  
+- **Audio Quality**: Ensure proper boot configuration for selected hardware
+- **Bluetooth**: Common across all hardware - check A2DP agent status
+
+Choose the audio hardware that best fits your project requirements, from simple built-in audio for development to professional BeoCreate 4 DSP for production vehicles!

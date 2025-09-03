@@ -1,4 +1,4 @@
-// Updated main.cpp - Replace complex Bluetooth with SimplifiedAudioManager
+// Updated main.cpp - Use MultiAudioManager for all audio hardware
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
@@ -8,7 +8,7 @@
 #include <fstream>
 
 // Project headers
-#include "SimplifiedAudioManager.h"  // NEW: Replace BluetoothAudioManager
+#include "MultiAudioManager.h"     // NEW: Unified audio manager
 #include "SerialCommunication.h"
 
 // Include UI files
@@ -41,7 +41,7 @@ private:
     std::atomic<bool> running{true};
     
     // Component managers
-    std::unique_ptr<SimplifiedAudioManager> audio_manager;  // CHANGED: Use simplified manager
+    std::unique_ptr<MultiAudioManager> audio_manager;  // NEW: Unified audio manager
     std::unique_ptr<SerialCommunication> serial_comm;
     
     // LVGL chart series
@@ -97,6 +97,7 @@ private:
 public:
     void init() {
         std::cout << "=== LVGL Dashboard Starting Up ===" << std::endl;
+        std::cout << "Audio Hardware: " << MultiAudioManager::getHardwareName() << std::endl;
         
         // Initialize LVGL
         std::cout << "Boot: Initializing LVGL..." << std::endl;
@@ -155,9 +156,9 @@ public:
             processBMSData(data);
         });
         
-        // Initialize Simplified Audio Manager (CHANGED)
-        std::cout << "Boot: Initializing Simplified Audio Manager..." << std::endl;
-        audio_manager = std::make_unique<SimplifiedAudioManager>();
+        // Initialize Multi Audio Manager
+        std::cout << "Boot: Initializing " << MultiAudioManager::getHardwareName() << "..." << std::endl;
+        audio_manager = std::make_unique<MultiAudioManager>();
         if (audio_manager->initialize()) {
             audio_initialized = true;
             
@@ -166,7 +167,11 @@ public:
                 updateAudioDisplay(info);
             });
             
-            std::cout << "Boot: Simplified Audio ready - Pi appears as 'TazzariAudio'" << std::endl;
+            // Show hardware capabilities
+            std::cout << "Boot: " << MultiAudioManager::getHardwareName() << " ready" << std::endl;
+            std::cout << "  Hardware Volume: " << (MultiAudioManager::hasHardwareVolume() ? "Yes" : "No") << std::endl;
+            std::cout << "  Hardware EQ: " << (MultiAudioManager::hasHardwareEQ() ? "Yes" : "No") << std::endl;
+            std::cout << "  Pi appears as 'TazzariAudio' for Bluetooth" << std::endl;
         } else {
             std::cout << "Warning: Audio initialization failed" << std::endl;
         }
@@ -282,8 +287,7 @@ public:
         bms_connected = true;
     }
     
-    // CHANGED: Simplified audio display update
-  // Add this to main.cpp in the updateAudioDisplay function
+    // Universal audio display update
     void updateAudioDisplay(const SimpleMediaInfo& info) {
         static SimpleMediaInfo last_info;
         
@@ -321,7 +325,7 @@ public:
             last_info = info;
         }
         
-        // TODO: Update UI labels with track info
+        // TODO: Update UI labels with track info when UI elements are available
         // if (objects.lbl_track_title) {
         //     lv_label_set_text(objects.lbl_track_title, info.track_title.c_str());
         // }
@@ -507,7 +511,7 @@ public:
             std::cout << "UI: Trip reset requested" << std::endl;
             resetTrip();
         }
-        // CHANGED: Simplified audio controls
+        // Universal audio controls
         else if(obj == objects.btn_play && audio_initialized) {
             std::cout << "UI: Play/Pause button pressed" << std::endl;
             audio_manager->togglePlayPause();
@@ -523,9 +527,9 @@ public:
         else if(obj == objects.arc_volume && audio_initialized) {
             int32_t volume = lv_arc_get_value(obj);
             std::cout << "UI: Volume changed to " << volume << "%" << std::endl;
-            audio_manager->setVolume(volume);  // Goes directly to BeoCreate DSP!
+            audio_manager->setVolume(volume);  // Hardware or software depending on audio_hardware
         }
-        // EQ sliders (now route to simplified manager)
+        // EQ sliders (universal)
         else if(obj == objects.sld_base && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
             std::cout << "UI: Bass EQ: " << value << std::endl;
@@ -595,7 +599,7 @@ public:
                 bms_connected = serial_comm->isBMSDataValid();
             }
             
-            // CHANGED: Update simplified audio manager (lightweight)
+            // Update audio manager
             if (audio_manager) {
                 audio_manager->update();
             }
@@ -655,7 +659,8 @@ public:
 };
 
 int main() {
-    std::cout << "=== LVGL Dashboard with BeoCreate 4 + Simple Bluetooth ===" << std::endl;
+    std::cout << "=== LVGL Dashboard with Multi-Audio Hardware Support ===" << std::endl;
+    std::cout << "Audio Hardware: " << MultiAudioManager::getHardwareName() << std::endl;
     
     Dashboard dashboard;
     
