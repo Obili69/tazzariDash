@@ -1,265 +1,316 @@
-# LVGL Automotive Dashboard
+# LVGL Tazzari Dashboard with HiFiBerry BeoCreate 4
 
-A real-time automotive dashboard built with LVGL, designed for electric vehicles with comprehensive BMS integration and audio system control.
+Complete automotive dashboard with professional DSP audio, custom boot splash, and auto-start for electric vehicles.
 
-## Overview
-
-This project implements a modern automotive dashboard interface that receives data from ESP32-based vehicle controllers via USB serial communication. The dashboard displays critical vehicle information including speed, battery management, lighting states, and provides audio system control through HiFiBerry DSP integration.
-
-## ToDo
-- **Audio**: Add bluetooth handeling and beocreate specific audio handeling.
-- **Setup**: Add Windowless mode for deployment builds and use windowed build only in development
-- **Project**: Add config files and build flags to adjust project. (eg dev build and factory build, beocreate specific code or not) Also a cleaner main would be nice.
-- **Documentation**: Add custom UI building instructions.
 ## Features
+- **Vehicle Data**: Speed, battery, gear, lighting via ESP32 serial
+- **HiFiBerry BeoCreate 4**: Professional 4-channel DSP with REST API control
+- **Hardware Volume**: 0-100% direct DSP register control (not software)  
+- **3-Band EQ**: Bass/Mid/High biquad filters via DSP
+- **Bluetooth Audio**: Phone streams to dashboard → BeoCreate 4 → car speakers
+- **Custom Boot Splash**: Your splash.png shown during Pi boot
+- **Auto-start**: Boots directly to fullscreen dashboard (no desktop visible)
+- **Hidden Cursor**: Professional automotive interface (no mouse pointer)
+- **Real-time Charts**: Voltage/current monitoring with touch controls
 
-### Vehicle Data Display
-- **Speed & Distance**: Real-time speed display with integrated odometer and trip counter
-- **Gear Indication**: Visual gear state (D/N/R) with opacity-based highlighting
-- **Battery Management**: SOC percentage, voltage ranges, temperature monitoring
-- **Lighting System**: Complex hierarchy supporting DRL, low/high beam, fog lights, indicators
+## Quick Start
 
-### Audio Integration
-- **Volume Control**: Interactive arc-based volume adjustment
-- **EQ Controls**: 3-band equalizer (Bass/Mid/High) with real-time adjustment
-- **Media Controls**: Play/pause/skip functionality for Bluetooth audio
-- **DSP Integration**: HiFiBerry BeoCreate DSP control via SigmaTCP
+```bash
+# 1. Add your splash image
+mkdir -p img
+# Copy your splash.png to img/splash.png
 
-### Data Visualization
-- **Real-time Charts**: Voltage and current plotting with dual series
-- **Battery Warnings**: ThunderSky Winston LiFePO4 specific safety alerts
-- **Icon Management**: Contextual lighting and warning icon display
+# 2. One-time complete setup
+chmod +x setup.sh
+./setup.sh
+sudo reboot
 
-### System Features
-- **Data Persistence**: Automatic odometer/trip data saving
-- **Startup Sequence**: 2-second icon test followed by normal operation
-- **Timeout Handling**: Graceful degradation when data sources disconnect
-- **Debug Logging**: Comprehensive event and data reception logging
+# 3. After reboot - Load DSP profile  
+./setup_dsp.sh
+
+# 4. Build and run
+./build.sh --deployment
+```
+
+**That's it!** The dashboard will auto-start on every boot with your custom splash screen.
+
+## Complete Boot Sequence
+
+```
+Pi Boot → Custom Splash (your image) → Desktop (hidden) → Dashboard (fullscreen, no cursor)
+```
+
+1. **Boot Splash**: Shows your `img/splash.png` with animated loading dots
+2. **Cursor Hidden**: System-wide cursor removal (elegant file rename method)
+3. **Auto-start**: Dashboard launches automatically in fullscreen
+4. **Audio Ready**: Appears as "TazzariAudio" for Bluetooth pairing
+5. **DSP Control**: Hardware volume and EQ via BeoCreate 4
+
+## Control Scripts
+
+```bash
+./stop_dashboard.sh     # Stop dashboard (show desktop)
+./show_cursor.sh        # Restore cursor for debugging
+./disable_autostart.sh  # Disable auto-start completely
+./pair_phone.sh         # Bluetooth pairing help
+./test_serial.sh        # Check ESP32 connection
+```
 
 ## Hardware Requirements
 
-### Minimum Requirements
-- **Platform**: Raspberry Pi 4/5 or Linux PC with USB port
-- **Display**: 1024x600 resolution (7" automotive display recommended)
-- **Memory**: 2GB RAM minimum, 4GB recommended
-- **Storage**: 8GB microSD/SSD minimum
+- **Platform**: Raspberry Pi 4/5 
+- **Audio**: HiFiBerry BeoCreate 4 (4-channel amplifier + DSP)
+- **Display**: 1024x600 touchscreen (automotive recommended)
+- **Vehicle Data**: ESP32 via USB serial
+- **Speakers**: 4-channel car audio system
+- **Power**: 12V to 5V converter with clean power
 
-### Recommended Setup
-- **SBC**: Raspberry Pi 5 with active cooling
-- **Display**: 7" IPS touchscreen with automotive-grade housing
-- **Audio**: HiFiBerry DAC+ ADC Pro with BeoCreate 4-channel amplifier
-- **Connectivity**: ESP32 via USB-C for vehicle data
-- **Power**: 12V to 5V buck converter with clean power filtering
+## Audio System Architecture
 
-### Supported Hardware
-- **Vehicle Controllers**: ESP32, Arduino with compatible serial protocol
-- **Audio DSPs**: HiFiBerry BeoCreate series
-- **Displays**: Any SDL2-compatible display or development window
+```
+Phone (Bluetooth) → Pi (TazzariAudio) → BeoCreate 4 DSP → 4 Car Speakers
+                                        ↓
+Dashboard Touch Controls ←→ REST API ←→ Hardware DSP Registers
+(Volume/EQ/Media)          (localhost:13141)  (Real-time Control)
+```
 
-## Installation
+## Development vs Production
 
-### Quick Install
 ```bash
-# Clone repository
-git clone https://github.com/Obili69/tazzariDash.git
-cd lvgl-dashboard
-
-# Run installation script
-chmod +x install_dashboard_deps.sh
-./install_dashboard_deps.sh
-
-# Logout/login to apply group changes
-# Copy your source files to src/ and ui/ directories
-
-# Build project
+# Development (windowed, cursor visible)
 ./build.sh
+./build/LVGLDashboard_dev
 
-# Test serial connection
-./test_serial.sh
+# Production (fullscreen, auto-start, no cursor)  
+./build.sh --deployment
+sudo reboot  # Auto-starts
 ```
-
-### Manual Installation
-See [INSTALLATION_SUMMARY.md](INSTALLATION_SUMMARY.md) for detailed dependency information.
-
-## Configuration
-
-### Serial Communication
-```cpp
-// Default configuration in main.cpp
-const char* serial_port = "/dev/ttyUSB0";  // Change as needed
-const int baud_rate = 115200;
-```
-
-Common ports:
-- ESP32: `/dev/ttyUSB0`
-- Arduino Uno: `/dev/ttyUSB0` or `/dev/ttyACM0`
-
-### Display Settings
-```cpp
-// Window size configuration
-lv_display_t* disp = lv_sdl_window_create(1024, 600);
-```
-
-### BeoCreate DSP
-```bash
-# Activate Python environment
-source activate_beocreate.sh
-
-# Configure DSP (example)
-beocreate-dsp configure --program automotive.xml
-```
-
-## Usage
-
-### Basic Operation
-1. Connect ESP32 via USB cable
-2. Power on the display system
-3. Run the dashboard: `./build/LVGLDashboard`
-4. Dashboard shows 2-second startup test, then live data
-
-### Controls
-- **Trip Reset**: Click on trip distance value
-- **Volume**: Use arc control (0-100%)
-- **EQ**: Adjust bass/mid/high frequency sliders
-- **Media**: Play/pause/skip buttons for Bluetooth audio
-
-### Data Sources
-The dashboard expects data from ESP32 in specific packet format:
-- **Automotive Packet**: Speed, gear, lighting states
-- **BMS Packet**: Voltage, current, SOC, temperatures
-
-## Architecture
-
-### Core Components
-- **Dashboard Class**: Main application controller
-- **Serial Handler**: USB communication with vehicle systems
-- **UI Manager**: LVGL-based interface rendering
-- **Data Processor**: Vehicle data interpretation and display
-- **Storage Manager**: Persistent data handling
-
-### Data Flow
-```
-ESP32 → USB Serial → Packet Parser → Data Processor → LVGL UI → Display
-                                  ↓
-                              File Storage ← Persistence Manager
-```
-
-### Threading Model
-Single-threaded design with:
-- Non-blocking serial I/O
-- LVGL timer-based updates
-- Event-driven UI interactions
-
-## Development
-
-### Project Structure
-```
-lvgl-dashboard/
-├── src/                    # Main application source
-│   └── main.cpp
-├── ui/                     # EEZ Studio generated UI
-│   ├── ui.c/h
-│   └── screens.c/h
-├── include/                # Headers and configuration
-│   └── lv_conf.h
-├── lvgl/                   # LVGL library (submodule)
-├── build/                  # Build output
-└── scripts/                # Utility scripts
-```
-
-### Build System
-Uses CMake with automatic dependency detection:
-```bash
-# Development build
-cd build
-cmake -DCMAKE_BUILD_TYPE=Debug ..
-make -j$(nproc)
-
-# Release build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j$(nproc)
-```
-
-### Adding Features
-1. **New UI Elements**: Modify EEZ Studio project, regenerate UI files
-2. **Data Sources**: Extend packet parser for additional vehicle systems
-3. **Audio Features**: Add SigmaTCP commands in DSP controller
-4. **Visualization**: Create new LVGL chart types or custom widgets
-
-## Vehicle Integration
-
-### Data Protocol
-The system uses a custom packet protocol with checksums:
-```
-[START_BYTE][TYPE][LENGTH][DATA][CHECKSUM][END_BYTE]
-```
-
-### Supported Data Types
-- **BMS Data**: Current, voltage, SOC, cell voltages, temperatures
-- **Automotive Data**: Speed, gear state, all lighting functions
-- **Extensible**: Add new packet types for additional vehicle systems
-
-### Lighting Logic
-Implements complex automotive lighting hierarchy:
-- DRL mode (no lights active)
-- Low beam operation
-- High beam override
-- Light-ON mode (running lights)
-- Independent fog/indicator/brake lights
 
 ## Troubleshooting
 
-### Common Issues
-1. **Serial Port Access**: Ensure user in `dialout` group, logout/login required
-2. **Build Errors**: Check CMakeLists.txt paths match your file structure
-3. **No Data**: Verify ESP32 connection and baud rate (115200)
-4. **Display Issues**: Confirm SDL2 libraries installed correctly
-
-### Debug Options
 ```bash
-# Monitor serial traffic
-screen /dev/ttyUSB0 115200
+# Check system status
+curl http://localhost:13141/checksum  # DSP status
+sudo systemctl status sigmatcpserver  # DSP service
+sudo systemctl status a2dp-agent      # Bluetooth agent
+bluetoothctl devices Connected        # Connected devices
 
-# Check USB devices
-lsusb | grep -E "(Arduino|ESP32)"
+# Audio issues
+aplay -l                              # Check audio hardware
+pactl list sinks short               # Check audio routing
 
-# View debug output
-./build/LVGLDashboard 2>&1 | tee dashboard.log
+# Serial issues  
+./test_serial.sh                      # ESP32 connection
+ls /dev/tty{USB,ACM}*                # Available ports
+
+# Dashboard issues
+./stop_dashboard.sh                   # Stop if hung
+./show_cursor.sh                      # Show cursor for debugging
+sudo reboot                           # Full restart
 ```
 
-### Performance Optimization
-- Use Release build for production
-- Consider dedicated graphics memory on Pi
-- Optimize chart update intervals for smooth operation
+**Common Issues:**
+- **No audio**: Check HiFiBerry hardware connection, run `./setup_dsp.sh`
+- **No serial**: Logout/login after setup for dialout group permissions
+- **Dashboard won't start**: Check `./build.sh --deployment` completed successfully
+- **No Bluetooth**: Pi should appear as "TazzariAudio" in phone settings
+- **Cursor visible**: Run `./show_cursor.sh` then restart desktop
 
-## License
+## Project Structure
+```
+tazzariDash/
+├── img/
+│   └── splash.png              # Your custom splash image
+├── src/                        # C++ source files
+│   ├── main.cpp               # Main dashboard application
+│   ├── SerialCommunication.cpp
+│   └── SimplifiedAudioManager.cpp  # HiFiBerry REST API
+├── include/                   # Header files  
+├── ui/                       # LVGL UI files
+├── lvgl/                     # LVGL library (v9.0)
+├── build/                    # Build output
+├── setup.sh                  # Complete one-time setup
+├── build.sh                  # Build script
+├── setup_dsp.sh              # DSP profile loader
+└── *.sh                      # Control scripts
+```
 
-[License information to be added]
+## Technical Details
 
-## Contributing
+### Custom Boot Experience
+- **Plymouth Splash**: Your `splash.png` displayed during boot with loading animation
+- **Seamless Transition**: Boot splash → hidden desktop → fullscreen dashboard
+- **Professional Look**: No visible Linux desktop or cursor
 
-[Contributing guidelines to be added]
+### Audio Control Architecture
+- **Hardware Volume**: Direct BeoCreate 4 DSP register writes (0-100%)
+- **EQ Filters**: Real-time biquad filter calculation and DSP upload
+- **Media Control**: Bluetooth AVRCP commands with internal state tracking
+- **Auto-pairing**: Python D-Bus agent for seamless phone connection
 
-## Acknowledgments
+### Cursor Hiding Method
+- **Simple & Reliable**: Renames cursor file (`left_ptr` → `left_ptr.bak`)
+- **Universal**: Works on X11, Wayland, any display server
+- **Easy Recovery**: Simple file rename to restore functionality
 
-- **LVGL**: Graphics library foundation
-- **HiFiBerry**: Audio DSP integration
-- **SDL2**: Cross-platform display support
+### Dashboard Integration
+- **REST API**: Full HiFiBerry DSP control via libcurl HTTP calls
+- **State Management**: Internal tracking for reliable media play/pause
+- **Data Persistence**: Vehicle odometer and settings auto-save
+- **Real-time Updates**: 100ms refresh rate for smooth vehicle data display
 
-## Technical Specifications
+## Development Workflow
 
-### Performance Targets
-- **Update Rate**: 100ms display refresh
-- **Serial Latency**: <50ms data processing
-- **Memory Usage**: <128MB RSS typical
-- **CPU Usage**: <25% on Raspberry Pi 4
+```bash
+# Development mode (windowed, cursor visible)
+./build.sh
+./show_cursor.sh              # If cursor was hidden
+./build/LVGLDashboard_dev
 
-### Supported Protocols
-- **Serial**: 115200 baud, 8N1, custom packet format
-- **Audio**: SigmaTCP over TCP/IP (port 8086)
-- **Display**: SDL2 framebuffer or hardware acceleration
+# Production mode (fullscreen, auto-start)
+./build.sh --deployment
+sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak
+sudo reboot
+```
 
-### Environmental Requirements
-- **Operating Temperature**: -20°C to +70°C (automotive grade components)
-- **Input Voltage**: 12V nominal (9-16V range)
-- **Power Consumption**: <15W typical, <25W peak
+## Customization
+
+### Splash Screen
+- Replace `img/splash.png` with your custom image
+- Modify Plymouth script in `/usr/share/plymouth/themes/tazzari/tazzari.script`
+- Adjust colors, animations, or text
+
+### Audio Settings
+- EQ band frequencies: Modify `SimplifiedAudioManager.cpp` bass/mid/high frequencies
+- Volume curve: Adjust DSP value calculation in `setDSPVolume()`
+- Additional DSP features: Use HiFiBerry REST API documentation
+
+### Vehicle Data
+- Serial protocol: Modify packet structures in `SerialCommunication.h`
+- New sensors: Extend data structures for additional vehicle systems
+- Display layout: Customize LVGL UI elements
+
+Built with LVGL, SDL2, HiFiBerry BeoCreate 4, and precision engineering for electric vehicles!# LVGL Tazzari Dashboard with HiFiBerry BeoCreate 4
+
+Modern automotive dashboard with Bluetooth audio and professional DSP for electric vehicles.
+
+## Features
+- **Vehicle Data**: Speed, battery, gear, lighting via ESP32 serial
+- **HiFiBerry BeoCreate 4**: Professional 4-channel DSP with REST API control
+- **Hardware Volume Control**: 0-100% via DSP registers (not software)  
+- **3-Band EQ**: Bass/Mid/High frequency control via DSP biquad filters
+- **Bluetooth Audio**: Phone streams music through dashboard to BeoCreate 4 amplifier
+- **Real-time Charts**: Voltage/current monitoring
+- **Touch Controls**: Volume, EQ, media control, trip reset
+
+## Hardware Requirements
+- **Platform**: Raspberry Pi 4/5 
+- **Audio DSP**: HiFiBerry BeoCreate 4 (4-channel amplifier + DSP)
+- **Display**: 1024x600 touchscreen
+- **Vehicle Data**: ESP32 via USB serial
+- **Speakers**: 4-channel car audio system
+
+## Quick Start
+
+```bash
+# 1. One-time setup (installs HiFiBerry + Bluetooth)
+chmod +x setup.sh
+./setup.sh
+sudo reboot
+
+# 2. After reboot - Load DSP profile
+./setup_dsp.sh
+
+# 3. Build dashboard  
+./build.sh
+
+# 4. Connect phone to Bluetooth
+./pair_phone.sh
+
+# 5. Run dashboard
+./run_dev.sh              # Development (windowed)
+./run_deployment.sh       # Production (fullscreen)
+```
+
+## Audio System Architecture
+
+```
+Phone (Bluetooth A2DP) → Pi (TazzariAudio) → HiFiBerry BeoCreate 4 → 4 Car Speakers
+                                              ↓
+Dashboard Controls ←→ REST API ←→ SigmaTCP Server ←→ DSP Registers
+(Volume/EQ)          (localhost:13141)                (Hardware Control)
+```
+
+## Usage
+- **Volume Control**: Arc control directly adjusts DSP hardware volume (0-100%)
+- **EQ Controls**: Bass/Mid/High sliders create biquad filters on DSP
+- **Media Controls**: Play/pause/skip buttons via Bluetooth
+- **Trip Reset**: Tap trip distance
+- **Bluetooth**: Pi appears as "TazzariAudio" on phones
+
+## Development
+
+```bash
+./build.sh                # Debug build (windowed)
+./build.sh --deployment   # Release build (fullscreen)
+./clean.sh                # Clean build files
+```
+
+## Troubleshooting
+
+```bash
+./test_serial.sh          # Check ESP32 connection
+./setup_dsp.sh            # Reload DSP profile
+./pair_phone.sh           # Bluetooth pairing help
+
+# Check DSP status
+curl http://localhost:13141/checksum
+
+# Check services
+sudo systemctl status sigmatcpserver
+sudo systemctl status a2dp-agent
+```
+
+**Common Issues:**
+- **No serial access**: Logout/login after setup
+- **No DSP control**: Run `./setup_dsp.sh` after reboot
+- **No Bluetooth audio**: Check Pi appears as "TazzariAudio" 
+- **Build errors**: Install libcurl with `sudo apt install libcurl4-openssl-dev`
+
+## Project Structure
+```
+tazzariDash/
+├── src/                    # C++ source files
+│   ├── main.cpp           # Main dashboard application
+│   ├── SerialCommunication.cpp
+│   └── SimplifiedAudioManager.cpp  # HiFiBerry REST API integration
+├── include/               # Header files  
+├── ui/                   # LVGL UI files
+├── build/                # Build output (generated)
+├── setup.sh              # One-time HiFiBerry + Bluetooth setup
+├── build.sh              # Build script
+├── setup_dsp.sh          # DSP profile loader (generated)
+└── *.sh                  # Helper scripts (generated)
+```
+
+## Technical Details
+
+### Audio Control
+- **Hardware Volume**: Direct DSP register control (not software mixing)
+- **REST API**: Full HiFiBerry DSP REST API integration via libcurl
+- **EQ Filters**: Real-time biquad filter generation and DSP upload
+- **Automatic Storage**: Volume/EQ settings saved in DSP profile
+
+### DSP Integration
+- **Profile**: BeoCreate Universal (4-channel crossover)
+- **Control Protocol**: SigmaTCP → REST API → libcurl
+- **Volume Register**: `volumeControlRegister` from profile metadata
+- **EQ Bands**: PeakingEq filters at 100Hz/1kHz/10kHz
+
+### Bluetooth Setup
+- **Device Name**: "TazzariAudio" 
+- **Class**: 0x2C0414 (Audio device)
+- **Auto-pairing**: Python D-Bus agent with NoInputNoOutput
+- **A2DP Sink**: Receives audio FROM phones
+
+Built with LVGL, SDL2, HiFiBerry BeoCreate 4, and love for electric vehicles! 🚗⚡

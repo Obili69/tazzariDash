@@ -34,13 +34,14 @@
     #define LV_SDL_RESOLUTION_V 0    // 0 = use desktop resolution
     #define LV_SDL_FULLSCREEN 1      // Enable fullscreen
     #define LV_SDL_DIRECT_EXIT 1     // Exit on window close
+    #define LV_SDL_MOUSE_CURSOR 0    // Hide mouse cursor
 #else
     #define LV_SDL_RESOLUTION_H 1024 // Fixed window size for development
     #define LV_SDL_RESOLUTION_V 600
     #define LV_SDL_FULLSCREEN 0      // Windowed mode
     #define LV_SDL_DIRECT_EXIT 1     // Exit on window close
+    #define LV_SDL_MOUSE_CURSOR 1    // Show mouse cursor for development
 #endif
-
 // Logging
 #define LV_USE_LOG 1
 #define LV_LOG_LEVEL LV_LOG_LEVEL_INFO

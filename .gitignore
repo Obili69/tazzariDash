@@ -1,43 +1,40 @@
-# Build directories
-/build/
+# Build artifacts
 build/
-
-# LVGL library (should be installed separately)
-/lvgl/
-lvgl/
-
-# Compiled executables
-*.exe
-*.out
-LVGLDashboard
-
-# Object files
 *.o
-*.obj
 *.so
 *.a
 
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
+# Generated executables
+LVGLDashboard*
+run_*.sh
 
-# IDE files
+# Project data files  
+dashboard_data.txt
+
+# Development files
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
+*.tmp
 
 # System files
 .DS_Store
 Thumbs.db
 
-# Runtime data files
-dashboard_data.txt
+# Log files
 *.log
+debug.txt
 
-# Temporary files
-*.tmp
-*.temp
+# Keep these essential files
+!src/
+!include/
+!ui/
+!CMakeLists.txt
+!build.sh
+!setup.sh
+!clean.sh
+!test_serial.sh
+!route_audio.sh
+!pair_phone.sh
+!.gitignore
+!README.md
