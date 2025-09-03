@@ -262,8 +262,7 @@ Built with LVGL, SDL2, and love for electric vehicles! 🚗⚡
 |----------|----------|------|------|-------------|--------|
 | **Pi 4** | ✓ | ✓ | ✓ | ✓ | Full support all hardware |
 | **Pi 5** | ✓ | ✓ | ✓ | ✓ | Use updated overlays |  
-| **Pi 3B+** | ✓ | ✓ | ✓ | Limited | BeoCreate 4 may be slower |
-| **Pi Zero 2** | ✓ | ✓ | ✓ | ✗ | Insufficient processing for DSP |
+| **Pi 3B+** | ✓ | ✓ | ✓ | ✓ | BeoCreate 4 may be slower |
 
 ## Power Requirements
 
