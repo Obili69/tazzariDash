@@ -18,7 +18,7 @@ Modern automotive dashboard for electric vehicles with **4 audio hardware option
 ### 1. Setup (One Time)
 ```bash
 # Download and setup
-git clone <your-repo>
+git clone https://github.com/Obili69/tazzariDash.git
 cd tazzariDash
 
 # Auto-setup with hardware selection
