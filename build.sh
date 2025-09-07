@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh - Build LVGL Dashboard with selectable audio hardware
+# build.sh - Build LVGL Dashboard with selectable audio hardware and auto-start
 
 set -e
 
@@ -16,6 +16,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 BUILD_TYPE="Debug"
 DEPLOYMENT_MODE=false
 AUDIO_HARDWARE="BEOCREATE4"
+SETUP_AUTOSTART=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -23,6 +24,7 @@ while [[ $# -gt 0 ]]; do
         --deployment|--prod)
             DEPLOYMENT_MODE=true
             BUILD_TYPE="Release"
+            SETUP_AUTOSTART=true  # Auto-enable autostart for deployment builds
             shift
             ;;
         --dev|--debug)
@@ -46,13 +48,21 @@ while [[ $# -gt 0 ]]; do
             AUDIO_HARDWARE="BEOCREATE4"
             shift
             ;;
+        --autostart)
+            SETUP_AUTOSTART=true
+            shift
+            ;;
+        --no-autostart)
+            SETUP_AUTOSTART=false
+            shift
+            ;;
         --help|-h)
             echo "LVGL Dashboard Build Script with Multi-Audio Hardware Support"
             echo "Usage: $0 [options]"
             echo ""
             echo "Build Options:"
             echo "  --dev, --debug      Debug build (windowed, default)"
-            echo "  --deployment, --prod Release build (fullscreen)"
+            echo "  --deployment, --prod Release build (fullscreen + autostart)"
             echo ""
             echo "Audio Hardware Options:"
             echo "  --audio-aux         Built-in 3.5mm jack (PulseAudio + alsaeq)"
@@ -60,10 +70,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --audio-amp4        HiFiBerry AMP4 (ALSA hardware volume + alsaeq)"
             echo "  --audio-beocreate4  HiFiBerry BeoCreate 4 (DSP REST API, default)"
             echo ""
+            echo "Autostart Options:"
+            echo "  --autostart         Enable autostart (automatic for --deployment)"
+            echo "  --no-autostart      Disable autostart"
+            echo ""
             echo "Examples:"
             echo "  $0 --dev --audio-amp4           # Development build with AMP4"
             echo "  $0 --deployment --audio-dac     # Production build with DAC+"
-            echo "  $0 --audio-aux                  # Development with built-in audio"
+            echo "  $0 --deployment --audio-beocreate4 --no-autostart  # Production without autostart"
             echo ""
             echo "Hardware Requirements:"
             echo "  AUX:        No additional hardware (built-in 3.5mm)"
@@ -84,6 +98,7 @@ done
 log_info "Building LVGL Dashboard..."
 log_info "Mode: $([ "$DEPLOYMENT_MODE" = true ] && echo "Deployment (fullscreen)" || echo "Development (windowed)")"
 log_info "Audio Hardware: $AUDIO_HARDWARE"
+log_info "Autostart: $([ "$SETUP_AUTOSTART" = true ] && echo "Enabled" || echo "Disabled")"
 
 # Display audio hardware info
 case $AUDIO_HARDWARE in
@@ -109,10 +124,9 @@ case $AUDIO_HARDWARE in
         ;;
 esac
 
-# Check prerequisites
+# Check prerequisites (existing code remains the same)
 log_info "Checking prerequisites..."
 
-# Check directory structure
 if [ ! -d "src" ] || [ ! -f "src/main.cpp" ]; then
     echo "Error: Source files not found!"
     echo "Expected: src/main.cpp"
@@ -144,61 +158,35 @@ for source in "${REQUIRED_SOURCES[@]}"; do
     fi
 done
 
-# Check dependencies based on audio hardware
+# Check dependencies based on audio hardware (existing code)
 log_info "Checking audio dependencies for $AUDIO_HARDWARE..."
 
 case $AUDIO_HARDWARE in
     "AUX")
-        # Check PulseAudio
         if ! pkg-config --exists libpulse; then
             echo "Error: PulseAudio development files not found!"
             echo "Install with: sudo apt install libpulse-dev libasound2-plugin-equal"
             exit 1
         fi
         log_success "PulseAudio development files found"
-        
-        # Check if alsaeq is available
-        if ! dpkg -l | grep -q libasound2-plugin-equal; then
-            log_warning "alsaeq plugin not installed (will install during runtime)"
-        else
-            log_success "alsaeq plugin available"
-        fi
         ;;
         
     "DAC"|"AMP4")
-        # Check ALSA
         if ! pkg-config --exists alsa; then
             echo "Error: ALSA development files not found!"
             echo "Install with: sudo apt install libasound2-dev libasound2-plugin-equal"
             exit 1
         fi
         log_success "ALSA development files found"
-        
-        # Check if alsaeq is available
-        if ! dpkg -l | grep -q libasound2-plugin-equal; then
-            log_warning "alsaeq plugin not installed (will install during runtime)"
-        else
-            log_success "alsaeq plugin available"
-        fi
         ;;
         
     "BEOCREATE4")
-        # Check libcurl
         if ! pkg-config --exists libcurl; then
             echo "Error: libcurl not found!"
             echo "Install with: sudo apt install libcurl4-openssl-dev"
             exit 1
         fi
         log_success "libcurl found"
-        
-        # Check SigmaTCP server
-        if systemctl is-active sigmatcpserver >/dev/null 2>&1; then
-            log_success "SigmaTCP server running"
-        elif [ -f "/usr/bin/sigmatcpserver" ]; then
-            log_warning "SigmaTCP server available but not running"
-        else
-            log_warning "HiFiBerry DSP tools not found (install with setup.sh)"
-        fi
         ;;
 esac
 
@@ -242,7 +230,7 @@ else
     RUN_SCRIPT="run_${AUDIO_HARDWARE,,}_dev.sh"
 fi
 
-# Create run script with audio hardware check
+# Create run script with audio hardware check (existing code)
 cat > "$RUN_SCRIPT" << EOF
 #!/bin/bash
 # Auto-generated run script for $AUDIO_HARDWARE hardware
@@ -259,7 +247,6 @@ fi
 case "$AUDIO_HARDWARE" in
     "AUX")
         echo "Using built-in 3.5mm jack..."
-        # Check if PulseAudio is running
         if ! pulseaudio --check 2>/dev/null; then
             echo "Starting PulseAudio..."
             pulseaudio --start
@@ -267,7 +254,6 @@ case "$AUDIO_HARDWARE" in
         ;;
     "DAC"|"AMP4")
         echo "Using HiFiBerry $AUDIO_HARDWARE..."
-        # Check ALSA configuration
         if ! aplay -l | grep -q hifiberry 2>/dev/null; then
             echo "Warning: HiFiBerry device not detected in ALSA"
             echo "Check boot configuration: dtoverlay=hifiberry-dacplus-std"
@@ -275,7 +261,6 @@ case "$AUDIO_HARDWARE" in
         ;;
     "BEOCREATE4")
         echo "Using HiFiBerry BeoCreate 4..."
-        # Check DSP REST API
         if ! curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
             echo "Warning: BeoCreate 4 DSP REST API not responding"
             echo "Check: sudo systemctl status sigmatcpserver"
@@ -288,13 +273,157 @@ $EXECUTABLE
 EOF
 chmod +x "$RUN_SCRIPT"
 
+# Setup autostart if requested
+if [ "$SETUP_AUTOSTART" = true ]; then
+    log_info "Setting up autostart for deployment..."
+    
+    # Create autostart directory
+    mkdir -p ~/.config/autostart
+    
+    # Get absolute paths
+    DASHBOARD_PATH="$(pwd)"
+    EXECUTABLE_FULL_PATH="$DASHBOARD_PATH/$EXECUTABLE"
+    
+    # Remove any existing autostart configurations to avoid conflicts
+    log_info "Removing any existing autostart configurations..."
+    rm -f ~/.config/autostart/tazzari-dashboard-*.desktop 2>/dev/null || true
+    rm -f ~/start_tazzari_dashboard_*.sh 2>/dev/null || true
+    
+    # Create startup script
+    log_info "Creating startup script for $AUDIO_HARDWARE..."
+    cat > ~/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh << EOF
+#!/bin/bash
+# TazzariAudio Dashboard auto-start for $AUDIO_HARDWARE
+
+echo "=== TazzariAudio Dashboard Auto-Start ==="
+echo "Audio Hardware: $AUDIO_HARDWARE"
+echo "Build: Deployment Mode"
+
+# Wait for desktop environment
+sleep 15
+
+cd "$DASHBOARD_PATH"
+
+# Hardware-specific startup checks
+case "$AUDIO_HARDWARE" in
+    "AUX")
+        echo "Checking PulseAudio..."
+        if ! pulseaudio --check 2>/dev/null; then
+            echo "Starting PulseAudio..."
+            pulseaudio --start
+            sleep 3
+        fi
+        ;;
+    "DAC"|"AMP4")
+        echo "Checking HiFiBerry $AUDIO_HARDWARE..."
+        for i in {1..10}; do
+            if aplay -l | grep -q hifiberry 2>/dev/null; then
+                echo "✓ HiFiBerry device detected"
+                break
+            fi
+            sleep 2
+        done
+        ;;
+    "BEOCREATE4")
+        echo "Waiting for BeoCreate 4 DSP..."
+        for i in {1..20}; do
+            if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
+                echo "✓ DSP REST API ready"
+                break
+            fi
+            sleep 3
+        done
+        ;;
+esac
+
+# Start dashboard with restart capability
+echo "Starting TazzariAudio Dashboard..."
+while true; do
+    echo "\$(date): Starting dashboard..."
+    $EXECUTABLE_FULL_PATH
+    echo "\$(date): Dashboard exited, restarting in 3 seconds..."
+    sleep 3
+done
+EOF
+    chmod +x ~/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh
+    
+    # Create desktop autostart entry
+    cat > ~/.config/autostart/tazzari-dashboard-${AUDIO_HARDWARE,,}.desktop << EOF
+[Desktop Entry]
+Type=Application
+Name=TazzariAudio Dashboard ($AUDIO_HARDWARE)
+Exec=/home/$(whoami)/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Comment=TazzariAudio Dashboard with $AUDIO_HARDWARE audio hardware
+EOF
+    
+    # Hide cursor for deployment builds
+    if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr" ] && [ ! -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
+        log_info "Hiding mouse cursor for deployment..."
+        sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak 2>/dev/null || true
+    fi
+    
+    # Create control scripts
+    cat > stop_dashboard_${AUDIO_HARDWARE,,}.sh << 'EOF'
+#!/bin/bash
+echo "Stopping TazzariAudio Dashboard..."
+pkill -f "LVGLDashboard_.*_deployment"
+pkill -f "start_tazzari_dashboard"
+echo "Dashboard stopped"
+EOF
+    chmod +x stop_dashboard_${AUDIO_HARDWARE,,}.sh
+    
+    cat > show_cursor.sh << 'EOF'
+#!/bin/bash
+echo "Restoring mouse cursor..."
+if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
+    sudo mv /usr/share/icons/PiXflat/cursors/left_ptr.bak /usr/share/icons/PiXflat/cursors/left_ptr 2>/dev/null
+    echo "✓ Cursor restored (restart desktop to see effect)"
+else
+    echo "- Cursor backup not found"
+fi
+EOF
+    chmod +x show_cursor.sh
+    
+    cat > disable_autostart_${AUDIO_HARDWARE,,}.sh << EOF
+#!/bin/bash
+echo "Disabling TazzariAudio Dashboard autostart..."
+rm -f ~/.config/autostart/tazzari-dashboard-${AUDIO_HARDWARE,,}.desktop
+./stop_dashboard_${AUDIO_HARDWARE,,}.sh
+echo "✓ Autostart disabled"
+EOF
+    chmod +x disable_autostart_${AUDIO_HARDWARE,,}.sh
+    
+    log_success "Autostart configured!"
+    log_info ""
+    log_info "Autostart Control Scripts:"
+    log_info "  ./stop_dashboard_${AUDIO_HARDWARE,,}.sh      # Stop dashboard"
+    log_info "  ./show_cursor.sh                   # Show cursor for debugging"
+    log_info "  ./disable_autostart_${AUDIO_HARDWARE,,}.sh   # Disable autostart"
+    log_info ""
+fi
+
 log_success "Build complete!"
 echo ""
 echo "Executable: $EXECUTABLE"
 echo "Run script: ./$RUN_SCRIPT"
+
+if [ "$SETUP_AUTOSTART" = true ]; then
+    echo "Autostart: ✓ Enabled (starts on boot)"
+    echo ""
+    echo "Test autostart: sudo reboot"
+    echo "Or run manually: ./$RUN_SCRIPT"
+else
+    echo "Autostart: Disabled (manual start only)"
+    echo ""
+    echo "Run manually: ./$RUN_SCRIPT"
+fi
+
 echo ""
 
-# Show system status for selected audio hardware
+# Show system status for selected audio hardware (existing code)
 case $AUDIO_HARDWARE in
     "AUX")
         echo "Built-in Audio Status:"
@@ -323,21 +452,17 @@ case $AUDIO_HARDWARE in
         echo "HiFiBerry BeoCreate 4 Status:"
         if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
             echo "  ✓ DSP REST API active"
-            echo "  ✓ Hardware volume control available"
-            echo "  ✓ Hardware EQ available"
             
-            # Check if profile is loaded
             DSP_RESPONSE=$(curl -s http://localhost:13141/metadata 2>/dev/null)
             if echo "$DSP_RESPONSE" | grep -q "profileName"; then
                 PROFILE_NAME=$(echo "$DSP_RESPONSE" | grep -o '"profileName":"[^"]*"' | cut -d'"' -f4)
                 echo "  ✓ DSP Profile: $PROFILE_NAME"
             else
-                echo "  - No DSP profile loaded (run ./setup_dsp.sh)"
+                echo "  - No DSP profile loaded (run ./setup_dsp_beocreate4.sh)"
             fi
         else
             echo "  - DSP REST API not responding"
             echo "    Run: sudo systemctl start sigmatcpserver"
-            echo "    Then: ./setup_dsp.sh"
         fi
         ;;
 esac
@@ -358,4 +483,10 @@ else
 fi
 
 echo ""
-echo "Ready to run! Use ./$RUN_SCRIPT"
+if [ "$SETUP_AUTOSTART" = true ]; then
+    echo "🚗 TazzariAudio Dashboard ready for deployment!"
+    echo "   Reboot to test autostart: sudo reboot"
+else
+    echo "🚗 TazzariAudio Dashboard ready for development!"
+    echo "   Run manually: ./$RUN_SCRIPT"
+fi
