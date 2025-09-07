@@ -1,6 +1,5 @@
 #!/bin/bash
 # build.sh - Build LVGL Dashboard with selectable audio hardware and auto-start
-
 set -e
 
 GREEN='\033[0;32m'
