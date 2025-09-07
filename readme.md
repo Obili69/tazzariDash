@@ -20,7 +20,7 @@ Modern automotive dashboard for electric vehicles with **4 audio hardware option
 # Download and setup
 git clone https://github.com/Obili69/tazzariDash.git
 cd tazzariDash
-
+chmod +x *.sh
 # Auto-setup with hardware selection
 ./setup.sh --audio-amp4        # or --audio-aux, --audio-dac, --audio-beocreate4
 sudo reboot                     # Required for hardware changes
