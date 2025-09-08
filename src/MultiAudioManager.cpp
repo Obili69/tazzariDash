@@ -1,4 +1,4 @@
-// src/MultiAudioManager.cpp - Fixed for multiple mixer control names
+// src/MultiAudioManager.cpp - FIXED: No test tones + deployment optimizations
 
 #include "MultiAudioManager.h"
 #include <iostream>
@@ -52,20 +52,32 @@ protected:
 class MultiAudioManager::AuxAudioImpl : public BaseAudioImpl {
 public:
     bool initialize() override {
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: Fast init - Built-in audio" << std::endl;
+#else
         std::cout << "Audio: Initializing built-in 3.5mm jack..." << std::endl;
+#endif
         
         try {
-            // Check if PulseAudio is available
+            // Check if PulseAudio is available (silent in deployment)
             if (system("pactl info >/dev/null 2>&1") != 0) {
+#ifndef DEPLOYMENT_BUILD
                 std::cout << "Audio: Starting PulseAudio..." << std::endl;
+#endif
                 system("pulseaudio --start >/dev/null 2>&1");
-                std::this_thread::sleep_for(std::chrono::seconds(2));
+                std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Reduced wait time
             }
             
-            // Try to set up alsaeq (non-critical)
+            // Setup EQ only if not deployment build
+#ifndef DEPLOYMENT_BUILD
             setupAlsaEQSafe();
+#endif
             
+#ifdef DEPLOYMENT_BUILD
+            std::cout << "Audio: ✓ AUX ready" << std::endl;
+#else
             std::cout << "Audio: ✓ Built-in audio ready" << std::endl;
+#endif
             return true;
             
         } catch (...) {
@@ -75,7 +87,9 @@ public:
     }
     
     void shutdown() override {
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Audio: AUX interface shut down" << std::endl;
+#endif
     }
     
     bool setVolume(int volume) override {
@@ -88,9 +102,13 @@ public:
             
             if (success) {
                 current_volume = volume;
+#ifndef DEPLOYMENT_BUILD
                 std::cout << "Audio: ✓ Volume set to " << volume << "%" << std::endl;
+#endif
             } else {
+#ifndef DEPLOYMENT_BUILD
                 std::cout << "Audio: Warning - volume command failed, setting internal value" << std::endl;
+#endif
                 current_volume = volume;
             }
             
@@ -175,8 +193,6 @@ private:
                     eq_available = true;
                     std::cout << "Audio: ALSA EQ configured" << std::endl;
                 }
-            } else {
-                std::cout << "Audio: alsaeq not available, install with: sudo apt install libasound2-plugin-equal" << std::endl;
             }
         } catch (...) {
             eq_available = false;
@@ -185,7 +201,9 @@ private:
     
     bool setEQBandSafe(int band, int level) {
         if (!eq_available) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Audio: EQ not available, setting ignored" << std::endl;
+#endif
             return true; // Non-critical
         }
         
@@ -194,9 +212,11 @@ private:
                             " " + std::to_string(level) + " 2>/dev/null";
             bool success = (system(cmd.c_str()) == 0);
             
+#ifndef DEPLOYMENT_BUILD
             if (success) {
                 std::cout << "Audio: ✓ EQ band " << band << " set to " << level << "dB" << std::endl;
             }
+#endif
             
             return success;
         } catch (...) {
@@ -206,13 +226,18 @@ private:
 };
 #endif // AUDIO_HARDWARE_AUX
 
-// HiFiBerry DAC+/AMP4 implementation using ALSA - FIXED VERSION
+// HiFiBerry DAC+/AMP4 implementation - FIXED: No test tones
 #if defined(AUDIO_HARDWARE_DAC) || defined(AUDIO_HARDWARE_AMP4)
 class MultiAudioManager::HiFiBerryAudioImpl : public BaseAudioImpl {
 public:
     bool initialize() override {
         std::string hw_name = (AUDIO_HW == AudioHardware::HIFIBERRY_AMP4) ? "AMP4" : "DAC+";
+        
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: Fast init - " << hw_name << std::endl;
+#else
         std::cout << "Audio: Initializing HiFiBerry " << hw_name << " with ALSA..." << std::endl;
+#endif
         
         // Open ALSA mixer
         int result = snd_mixer_open(&mixer_handle, 0);
@@ -242,6 +267,7 @@ public:
         // FIXED: Try multiple control names instead of just "Digital"
         const char* control_names[] = {"Digital", "Master", "PCM", "Speaker", "Headphone", NULL};
         
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Audio: Available mixer controls:" << std::endl;
         snd_mixer_elem_t* elem = snd_mixer_first_elem(mixer_handle);
         while (elem) {
@@ -251,10 +277,11 @@ public:
             }
             elem = snd_mixer_elem_next(elem);
         }
+#endif
         
         // Find a working volume control
         for (int i = 0; control_names[i] != NULL; i++) {
-            elem = snd_mixer_first_elem(mixer_handle);
+            snd_mixer_elem_t* elem = snd_mixer_first_elem(mixer_handle);
             while (elem) {
                 const char* name = snd_mixer_selem_get_name(elem);
                 if (name && strcmp(name, control_names[i]) == 0) {
@@ -262,7 +289,11 @@ public:
                     if (snd_mixer_selem_has_playback_volume(elem)) {
                         volume_elem = elem;
                         volume_control_name = control_names[i];
+#ifdef DEPLOYMENT_BUILD
+                        std::cout << "Audio: ✓ Volume: " << volume_control_name << std::endl;
+#else
                         std::cout << "Audio: ✓ Using '" << volume_control_name << "' for volume control" << std::endl;
+#endif
                         break;
                     }
                 }
@@ -273,16 +304,23 @@ public:
         
         if (!volume_elem) {
             std::cerr << "Audio: No suitable volume control found" << std::endl;
-            // Don't fail completely - we can still try software volume
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Audio: Continuing without hardware volume control" << std::endl;
+#endif
         }
         
+        // Setup EQ only in development mode or if explicitly requested
+#ifndef DEPLOYMENT_BUILD
         setupHiFiBerryAlsaEQ();
+#endif
         
-        // Test audio output
-        testAudioOutput();
+        // REMOVED: No test audio output in any mode
         
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: ✓ " << hw_name << " ready" << std::endl;
+#else
         std::cout << "Audio: ✓ HiFiBerry " << hw_name << " ready" << std::endl;
+#endif
         return true;
     }
     
@@ -291,7 +329,9 @@ public:
             snd_mixer_close(mixer_handle);
             mixer_handle = nullptr;
         }
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Audio: HiFiBerry interface closed" << std::endl;
+#endif
     }
     
     bool setVolume(int volume) override {
@@ -301,7 +341,9 @@ public:
         current_volume = volume;
         
         if (!volume_elem) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Audio: No hardware volume control, using software volume" << std::endl;
+#endif
             // Fallback to software volume control
             std::string cmd = "amixer set Master " + std::to_string(volume) + "% 2>/dev/null";
             system(cmd.c_str());
@@ -319,7 +361,11 @@ public:
             return false;
         }
         
+#ifdef DEPLOYMENT_BUILD
+        // Silent in deployment
+#else
         std::cout << "Audio: ✓ Hardware volume (" << volume_control_name << ") set to " << volume << "%" << std::endl;
+#endif
         return true;
     }
     
@@ -354,26 +400,7 @@ private:
     snd_mixer_elem_t* volume_elem = nullptr;
     std::string volume_control_name = "";
     
-    void testAudioOutput() {
-        std::cout << "Audio: Testing HiFiBerry output..." << std::endl;
-        
-        // Try to play a short test tone
-        const char* test_commands[] = {
-            "timeout 2s speaker-test -D hw:1,0 -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
-            "timeout 2s speaker-test -D plughw:1,0 -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
-            "timeout 2s speaker-test -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
-            NULL
-        };
-        
-        for (int i = 0; test_commands[i] != NULL; i++) {
-            if (system(test_commands[i]) == 0) {
-                std::cout << "Audio: ✓ Audio output test passed" << std::endl;
-                return;
-            }
-        }
-        
-        std::cout << "Audio: Warning - Audio output test failed, but continuing" << std::endl;
-    }
+    // REMOVED: testAudioOutput() function completely
     
     void setupHiFiBerryAlsaEQ() {
         std::string home = getenv("HOME") ? getenv("HOME") : "/tmp";
@@ -417,39 +444,56 @@ private:
         system("sudo /sbin/alsa force-reload >/dev/null 2>&1 || true");
         
         std::cout << "Audio: ✓ ALSA EQ configuration updated" << std::endl;
-        std::cout << "Audio: ✓ All audio will now route through EQ" << std::endl;
     }
     
     bool setAlsaEQBand(int band, int level) {
         std::string cmd = "amixer -D equal cset numid=" + std::to_string(band + 1) + " " + std::to_string(level) + " 2>/dev/null";
         bool success = (system(cmd.c_str()) == 0);
         
+#ifndef DEPLOYMENT_BUILD
         if (success) {
             std::cout << "Audio: ✓ EQ band " << band << " set to " << level << "dB" << std::endl;
         }
+#endif
         
         return success;
     }
 };
 #endif // AUDIO_HARDWARE_DAC || AUDIO_HARDWARE_AMP4
 
-// BeoCreate 4 implementation (existing code - unchanged)
+// BeoCreate 4 implementation - Fast init for deployment
 #ifdef AUDIO_HARDWARE_BEOCREATE4
 class MultiAudioManager::BeoCreateAudioImpl : public BaseAudioImpl {
 public:
     bool initialize() override {
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: Fast init - BeoCreate 4" << std::endl;
+#else
         std::cout << "Audio: Initializing BeoCreate 4 DSP..." << std::endl;
+#endif
         
         curl_global_init(CURL_GLOBAL_DEFAULT);
         
-        // Test DSP REST API connection
-        for (int i = 0; i < 5; i++) {
+        // Test DSP REST API connection (reduced retries in deployment)
+#ifdef DEPLOYMENT_BUILD
+        int max_retries = 3;
+        int sleep_time = 1;
+#else
+        int max_retries = 5;
+        int sleep_time = 2;
+#endif
+        
+        for (int i = 0; i < max_retries; i++) {
             if (testRestApiConnection()) {
                 dsp_rest_api_available = true;
+#ifdef DEPLOYMENT_BUILD
+                std::cout << "Audio: ✓ DSP ready" << std::endl;
+#else
                 std::cout << "Audio: ✓ BeoCreate 4 DSP connected" << std::endl;
+#endif
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
         }
         
         if (dsp_rest_api_available) {
@@ -510,7 +554,7 @@ private:
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3L); // Reduced timeout for deployment
         
         if (method == "POST") {
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -550,7 +594,7 @@ private:
 };
 #endif // AUDIO_HARDWARE_BEOCREATE4
 
-// MultiAudioManager implementation (rest remains the same)
+// MultiAudioManager implementation - NUTS FAST startup optimizations
 MultiAudioManager::MultiAudioManager() {
     last_update = std::chrono::steady_clock::now();
 }
@@ -560,7 +604,12 @@ MultiAudioManager::~MultiAudioManager() {
 }
 
 bool MultiAudioManager::initialize() {
+#ifdef DEPLOYMENT_BUILD
+    // NUTS FAST initialization
+    std::cout << "Audio: NUTS FAST init - " << getHardwareName() << std::endl;
+#else
     std::cout << "Audio: Initializing " << getHardwareName() << "..." << std::endl;
+#endif
     
     // Create appropriate implementation based on compile-time configuration
 #ifdef AUDIO_HARDWARE_AUX
@@ -586,9 +635,17 @@ bool MultiAudioManager::initialize() {
     
     if (success) {
         current_info.volume = impl->getVolume();
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: ✓ Ready" << std::endl;
+#else
         std::cout << "Audio: ✓ " << getHardwareName() << " initialized" << std::endl;
+#endif
     } else {
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Audio: ✗ Init failed" << std::endl;
+#else
         std::cout << "Audio: ✗ " << getHardwareName() << " initialization failed" << std::endl;
+#endif
     }
     
     return success;
@@ -630,7 +687,7 @@ bool MultiAudioManager::setHigh(int level) {
     return impl ? impl->setHigh(level) : false;
 }
 
-// Bluetooth methods (common to all implementations)
+// Bluetooth methods (common to all implementations) - optimized for deployment
 bool MultiAudioManager::isBluetoothConnected() {
     FILE* pipe = popen("bluetoothctl devices Connected 2>/dev/null | wc -l", "r");
     if (pipe) {
@@ -697,7 +754,12 @@ void MultiAudioManager::update() {
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count();
     
+#ifdef DEPLOYMENT_BUILD
+    // Longer update interval in deployment for performance
+    if (elapsed < 15) return;
+#else
     if (elapsed < 10) return;
+#endif
     
     last_update = now;
     

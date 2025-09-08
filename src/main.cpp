@@ -1,4 +1,4 @@
-// Updated main.cpp - Use MultiAudioManager for all audio hardware
+// NUTS FAST main.cpp - Ultra-fast deployment startup system
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
@@ -6,9 +6,10 @@
 #include <iostream>
 #include <cmath>
 #include <fstream>
+#include <future>
 
 // Project headers
-#include "MultiAudioManager.h"     // NEW: Unified audio manager
+#include "MultiAudioManager.h"
 #include "SerialCommunication.h"
 
 // Include UI files
@@ -41,8 +42,12 @@ private:
     std::atomic<bool> running{true};
     
     // Component managers
-    std::unique_ptr<MultiAudioManager> audio_manager;  // NEW: Unified audio manager
+    std::unique_ptr<MultiAudioManager> audio_manager;
     std::unique_ptr<SerialCommunication> serial_comm;
+    
+    // Background initialization futures
+    std::future<bool> audio_init_future;
+    std::future<bool> serial_init_future;
     
     // LVGL chart series
     lv_chart_series_t* voltage_series = nullptr;
@@ -53,9 +58,15 @@ private:
     std::chrono::steady_clock::time_point last_odo_save;
     std::chrono::steady_clock::time_point startup_time;
     
+#ifdef DEPLOYMENT_BUILD
+    const int UPDATE_INTERVAL = 200;    // Slower updates in deployment for performance
+    const int ODO_SAVE_INTERVAL = 5000; // Less frequent saves in deployment
+    const int STARTUP_ICON_DURATION = 1000; // Faster startup test (1 second)
+#else
     const int UPDATE_INTERVAL = 100;    // Update display every 100ms
     const int ODO_SAVE_INTERVAL = 2000; // Save odo/trip every 2 seconds
     const int STARTUP_ICON_DURATION = 2000; // 2 seconds startup test
+#endif
     
     // Vehicle data variables
     float speed_kmh = 0.0;
@@ -92,20 +103,29 @@ private:
     float saved_trip = 0.0;
     
     // Audio state
-    bool audio_initialized = false;
+    std::atomic<bool> audio_initialized{false};
+    std::atomic<bool> serial_initialized{false};
     
 public:
     void init() {
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "=== NUTS FAST STARTUP ===" << std::endl;
+        std::cout << "Audio: " << MultiAudioManager::getHardwareName() << std::endl;
+#else
         std::cout << "=== LVGL Dashboard Starting Up ===" << std::endl;
         std::cout << "Audio Hardware: " << MultiAudioManager::getHardwareName() << std::endl;
+#endif
         
-        // Initialize LVGL
+        // Initialize LVGL first (critical path)
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Boot: LVGL init..." << std::endl;
+#else
         std::cout << "Boot: Initializing LVGL..." << std::endl;
+#endif
         lv_init();
         
         // Initialize display based on build configuration
 #ifdef DEPLOYMENT_BUILD
-        std::cout << "Boot: Creating fullscreen display..." << std::endl;
         lv_display_t* disp = lv_sdl_window_create(1024, 600);
 #else
         std::cout << "Boot: Creating windowed display (1024x600)..." << std::endl;
@@ -114,50 +134,140 @@ public:
         
         lv_indev_t* indev = lv_sdl_mouse_create();
         
-        // Initialize UI
+        // Initialize UI IMMEDIATELY (critical path)
+#ifdef DEPLOYMENT_BUILD
+        std::cout << "Boot: UI ready" << std::endl;
+#else
         std::cout << "Boot: Initializing UI..." << std::endl;
+#endif
         ui_init();
         setupChartSeries();
         
-        // Initialize components
-        initializeComponents();
-        
-        // Load saved data
+        // NUTS FAST: Load saved data immediately (synchronous, fast)
         loadFromStorage();
         
-        // Initialize timing
+        // NUTS FAST: Show UI immediately with default values
         auto now = std::chrono::steady_clock::now();
         last_update = now;
         last_odo_save = now;
         startup_time = now;
         
-        // Show startup icons
+        // Show startup icons immediately
         showAllIconsStartup();
         setGear(GEAR_N);
         
+        // Update display with loaded data immediately
+        updateDisplay();
+        
+#ifdef DEPLOYMENT_BUILD
+        // NUTS FAST: Initialize components in BACKGROUND
+        std::cout << "Boot: Background init..." << std::endl;
+        initializeComponentsAsync();
+        
+        std::cout << "=== NUTS FAST READY! ===" << std::endl;
+#else
+        // Development: Initialize components normally
+        initializeComponents();
         std::cout << "=== Dashboard Ready! ===" << std::endl;
+#endif
     }
     
+#ifdef DEPLOYMENT_BUILD
+    // NUTS FAST: Asynchronous component initialization
+    void initializeComponentsAsync() {
+        // Start audio initialization in background thread
+        audio_init_future = std::async(std::launch::async, [this]() -> bool {
+            audio_manager = std::make_unique<MultiAudioManager>();
+            bool success = audio_manager->initialize();
+            
+            if (success) {
+                // Set up audio state callback
+                audio_manager->setStateCallback([this](const SimpleMediaInfo& info) {
+                    updateAudioDisplay(info);
+                });
+                audio_initialized = true;
+            }
+            
+            return success;
+        });
+        
+        // Start serial initialization in background thread
+        serial_init_future = std::async(std::launch::async, [this]() -> bool {
+            serial_comm = std::make_unique<SerialCommunication>("/dev/ttyACM0", 115200);
+            bool success = serial_comm->initialize();
+            
+            if (success) {
+                // Set up serial callbacks
+                serial_comm->setAutomotiveDataCallback([this](const automotive_data_t& data) {
+                    processAutomotiveData(data);
+                });
+                
+                serial_comm->setBMSDataCallback([this](const bms_data_t& data) {
+                    processBMSData(data);
+                });
+                serial_initialized = true;
+            }
+            
+            return success;
+        });
+    }
+    
+    // Check if background initialization is complete
+    void checkBackgroundInit() {
+        // Check audio initialization (non-blocking)
+        if (!audio_initialized && audio_init_future.valid()) {
+            if (audio_init_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                bool success = audio_init_future.get();
+                if (!success) {
+                    // Audio failed, but continue
+                }
+            }
+        }
+        
+        // Check serial initialization (non-blocking)
+        if (!serial_initialized && serial_init_future.valid()) {
+            if (serial_init_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+                bool success = serial_init_future.get();
+                if (!success) {
+                    // Serial failed, but continue
+                }
+            }
+        }
+    }
+#endif
+    
     void initializeComponents() {
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Boot: Initializing components..." << std::endl;
+#endif
         
         // Initialize Serial Communication
         serial_comm = std::make_unique<SerialCommunication>("/dev/ttyACM0", 115200);
         if (!serial_comm->initialize()) {
+#ifdef DEPLOYMENT_BUILD
+            // Silent in deployment
+#else
             std::cout << "Warning: Serial communication failed - running without vehicle data" << std::endl;
+#endif
+        } else {
+            serial_initialized = true;
         }
         
         // Set up serial callbacks
-        serial_comm->setAutomotiveDataCallback([this](const automotive_data_t& data) {
-            processAutomotiveData(data);
-        });
-        
-        serial_comm->setBMSDataCallback([this](const bms_data_t& data) {
-            processBMSData(data);
-        });
+        if (serial_comm) {
+            serial_comm->setAutomotiveDataCallback([this](const automotive_data_t& data) {
+                processAutomotiveData(data);
+            });
+            
+            serial_comm->setBMSDataCallback([this](const bms_data_t& data) {
+                processBMSData(data);
+            });
+        }
         
         // Initialize Multi Audio Manager
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Boot: Initializing " << MultiAudioManager::getHardwareName() << "..." << std::endl;
+#endif
         audio_manager = std::make_unique<MultiAudioManager>();
         if (audio_manager->initialize()) {
             audio_initialized = true;
@@ -167,13 +277,17 @@ public:
                 updateAudioDisplay(info);
             });
             
+#ifndef DEPLOYMENT_BUILD
             // Show hardware capabilities
             std::cout << "Boot: " << MultiAudioManager::getHardwareName() << " ready" << std::endl;
             std::cout << "  Hardware Volume: " << (MultiAudioManager::hasHardwareVolume() ? "Yes" : "No") << std::endl;
             std::cout << "  Hardware EQ: " << (MultiAudioManager::hasHardwareEQ() ? "Yes" : "No") << std::endl;
             std::cout << "  Pi appears as 'TazzariAudio' for Bluetooth" << std::endl;
+#endif
         } else {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Warning: Audio initialization failed" << std::endl;
+#endif
         }
     }
     
@@ -187,7 +301,9 @@ public:
             lv_chart_set_next_value(objects.cht_pwusage, current_series, 200);
         }
         
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Charts: Series created - Voltage (red), Current (blue)" << std::endl;
+#endif
     }
     
     // Startup icon display
@@ -287,7 +403,7 @@ public:
         bms_connected = true;
     }
     
-    // Universal audio display update
+    // Universal audio display update - optimized for deployment
     void updateAudioDisplay(const SimpleMediaInfo& info) {
         static SimpleMediaInfo last_info;
         
@@ -296,6 +412,12 @@ public:
                     last_info.state != info.state ||
                     last_info.track_title != info.track_title);
         
+#ifdef DEPLOYMENT_BUILD
+        // Minimal logging in deployment
+        if (changed && info.connected) {
+            std::cout << "Audio: " << info.device_name << " connected" << std::endl;
+        }
+#else
         if (changed) {
             std::cout << "Audio: " << (info.connected ? "Connected" : "Disconnected") 
                     << " - " << info.device_name;
@@ -321,17 +443,12 @@ public:
             }
             
             std::cout << " Vol:" << info.volume << "%" << std::endl;
-            
-            last_info = info;
         }
+#endif
+        
+        last_info = info;
         
         // TODO: Update UI labels with track info when UI elements are available
-        // if (objects.lbl_track_title) {
-        //     lv_label_set_text(objects.lbl_track_title, info.track_title.c_str());
-        // }
-        // if (objects.lbl_artist) {
-        //     lv_label_set_text(objects.lbl_artist, info.artist.c_str());
-        // }
     }
     
     void updateDisplay() {
@@ -350,7 +467,7 @@ public:
         lv_label_set_text(objects.lbl_trip, buffer);
         
         // Update SOC
-        if (bms_connected && serial_comm->isBMSDataValid()) {
+        if (bms_connected && serial_comm && serial_comm->isBMSDataValid()) {
             snprintf(buffer, sizeof(buffer), "%.0f%%", (float)soc_percent);
             lv_label_set_text(objects.lbl_soc, buffer);
             lv_bar_set_value(objects.bar_soc, soc_percent, LV_ANIM_ON);
@@ -359,7 +476,7 @@ public:
         }
         
         // Update voltage range
-        if (bms_connected && serial_comm->isBMSDataValid()) {
+        if (bms_connected && serial_comm && serial_comm->isBMSDataValid()) {
             snprintf(buffer, sizeof(buffer), "%.2f-%.2fV", min_cell_voltage, max_cell_voltage);
             lv_label_set_text(objects.lbl_volt_min_max, buffer);
         } else {
@@ -367,7 +484,7 @@ public:
         }
         
         // Update temperature range
-        if (bms_connected && serial_comm->isBMSDataValid()) {
+        if (bms_connected && serial_comm && serial_comm->isBMSDataValid()) {
             snprintf(buffer, sizeof(buffer), "%.0f-%.0f°C", min_temp, max_temp);
             lv_label_set_text(objects.lbl_temp_min_max, buffer);
         } else {
@@ -393,7 +510,7 @@ public:
         
         // Battery warning logic - ThunderSky Winston specific
         bool battery_warning = false;
-        if (bms_connected && serial_comm->isBMSDataValid()) {
+        if (bms_connected && serial_comm && serial_comm->isBMSDataValid()) {
             bool temp_high = (max_temp > 80.0);
             bool temp_low = (min_temp < -30.0);
             bool volt_high = (max_cell_voltage > 4.2 || max_cell_voltage > 4.0);
@@ -508,49 +625,67 @@ public:
         
         // Trip reset
         if(obj == objects.lbl_trip) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Trip reset requested" << std::endl;
+#endif
             resetTrip();
         }
-        // Universal audio controls
+        // Universal audio controls (only if audio is initialized)
         else if(obj == objects.btn_play && audio_initialized) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Play/Pause button pressed" << std::endl;
-            audio_manager->togglePlayPause();
+#endif
+            if (audio_manager) audio_manager->togglePlayPause();
         }
         else if(obj == objects.btn_skip && audio_initialized) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Skip button pressed" << std::endl;
-            audio_manager->nextTrack();
+#endif
+            if (audio_manager) audio_manager->nextTrack();
         }
         else if(obj == objects.btn_back && audio_initialized) {
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Back button pressed" << std::endl;
-            audio_manager->previousTrack();
+#endif
+            if (audio_manager) audio_manager->previousTrack();
         }
         else if(obj == objects.arc_volume && audio_initialized) {
             int32_t volume = lv_arc_get_value(obj);
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Volume changed to " << volume << "%" << std::endl;
-            audio_manager->setVolume(volume);  // Hardware or software depending on audio_hardware
+#endif
+            if (audio_manager) audio_manager->setVolume(volume);
         }
         // EQ sliders (universal)
         else if(obj == objects.sld_base && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Bass EQ: " << value << std::endl;
-            audio_manager->setBass(value - 50);  // Convert 0-100 to -50 to +50
+#endif
+            if (audio_manager) audio_manager->setBass(value - 50);
         }
         else if(obj == objects.sld_mid && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Mid EQ: " << value << std::endl;
-            audio_manager->setMid(value - 50);
+#endif
+            if (audio_manager) audio_manager->setMid(value - 50);
         }
         else if(obj == objects.sld_high && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+#ifndef DEPLOYMENT_BUILD
             std::cout << "UI: High EQ: " << value << std::endl;
-            audio_manager->setHigh(value - 50);
+#endif
+            if (audio_manager) audio_manager->setHigh(value - 50);
         }
     }
     
     void resetTrip() {
         trip_km = 0.0;
         saveToStorage();
+#ifndef DEPLOYMENT_BUILD
         std::cout << "Trip: Counter reset to 0.0 km" << std::endl;
+#endif
     }
     
     void loadFromStorage() {
@@ -558,11 +693,15 @@ public:
         if (file.is_open()) {
             file >> odo_km >> trip_km;
             file.close();
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Storage: Loaded ODO=" << odo_km << "km, TRIP=" << trip_km << "km" << std::endl;
+#endif
         } else {
             odo_km = saved_odo;
             trip_km = saved_trip;
+#ifndef DEPLOYMENT_BUILD
             std::cout << "Storage: Using defaults ODO=" << odo_km << "km, TRIP=" << trip_km << "km" << std::endl;
+#endif
         }
     }
     
@@ -578,16 +717,23 @@ public:
         while (running) {
             auto current_time = std::chrono::steady_clock::now();
             
+#ifdef DEPLOYMENT_BUILD
+            // Check background initialization progress
+            checkBackgroundInit();
+#endif
+            
             // Handle startup sequence
             auto startup_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - startup_time).count();
             if (startup_icons_active && startup_elapsed >= STARTUP_ICON_DURATION) {
                 startup_icons_active = false;
                 hideAllIcons();
+#ifndef DEPLOYMENT_BUILD
                 std::cout << "Startup: Icon test complete" << std::endl;
+#endif
             }
             
-            // Process vehicle data
-            if (serial_comm) {
+            // Process vehicle data (only if serial is initialized)
+            if (serial_comm && serial_initialized) {
                 serial_comm->processData();
                 
                 // Reset speed if automotive data times out
@@ -599,8 +745,8 @@ public:
                 bms_connected = serial_comm->isBMSDataValid();
             }
             
-            // Update audio manager
-            if (audio_manager) {
+            // Update audio manager (only if initialized)
+            if (audio_manager && audio_initialized) {
                 audio_manager->update();
             }
             
@@ -640,8 +786,12 @@ public:
             
             handleUIEvents();
             
-            // Sleep
+            // Sleep - optimized for deployment
+#ifdef DEPLOYMENT_BUILD
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time > 0 ? sleep_time : 10));
+#else
             std::this_thread::sleep_for(std::chrono::milliseconds(sleep_time > 0 ? sleep_time : 5));
+#endif
         }
     }
     
@@ -659,8 +809,13 @@ public:
 };
 
 int main() {
+#ifdef DEPLOYMENT_BUILD
+    std::cout << "=== NUTS FAST TAZZARI DASHBOARD ===" << std::endl;
+    std::cout << "Audio: " << MultiAudioManager::getHardwareName() << std::endl;
+#else
     std::cout << "=== LVGL Dashboard with Multi-Audio Hardware Support ===" << std::endl;
     std::cout << "Audio Hardware: " << MultiAudioManager::getHardwareName() << std::endl;
+#endif
     
     Dashboard dashboard;
     
