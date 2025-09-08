@@ -1,4 +1,4 @@
-// src/MultiAudioManager.cpp - Unified audio manager implementation
+// src/MultiAudioManager.cpp - Fixed for multiple mixer control names
 
 #include "MultiAudioManager.h"
 #include <iostream>
@@ -206,7 +206,7 @@ private:
 };
 #endif // AUDIO_HARDWARE_AUX
 
-// HiFiBerry DAC+/AMP4 implementation using ALSA
+// HiFiBerry DAC+/AMP4 implementation using ALSA - FIXED VERSION
 #if defined(AUDIO_HARDWARE_DAC) || defined(AUDIO_HARDWARE_AMP4)
 class MultiAudioManager::HiFiBerryAudioImpl : public BaseAudioImpl {
 public:
@@ -239,23 +239,48 @@ public:
             return false;
         }
         
-        // Find the "Digital" volume control
+        // FIXED: Try multiple control names instead of just "Digital"
+        const char* control_names[] = {"Digital", "Master", "PCM", "Speaker", "Headphone", NULL};
+        
+        std::cout << "Audio: Available mixer controls:" << std::endl;
         snd_mixer_elem_t* elem = snd_mixer_first_elem(mixer_handle);
         while (elem) {
             const char* name = snd_mixer_selem_get_name(elem);
-            if (name && strcmp(name, "Digital") == 0) {
-                digital_elem = elem;
-                break;
+            if (name) {
+                std::cout << "  - " << name << std::endl;
             }
             elem = snd_mixer_elem_next(elem);
         }
         
-        if (!digital_elem) {
-            std::cerr << "Audio: 'Digital' volume control not found" << std::endl;
-            return false;
+        // Find a working volume control
+        for (int i = 0; control_names[i] != NULL; i++) {
+            elem = snd_mixer_first_elem(mixer_handle);
+            while (elem) {
+                const char* name = snd_mixer_selem_get_name(elem);
+                if (name && strcmp(name, control_names[i]) == 0) {
+                    // Check if this control has playback volume capability
+                    if (snd_mixer_selem_has_playback_volume(elem)) {
+                        volume_elem = elem;
+                        volume_control_name = control_names[i];
+                        std::cout << "Audio: ✓ Using '" << volume_control_name << "' for volume control" << std::endl;
+                        break;
+                    }
+                }
+                elem = snd_mixer_elem_next(elem);
+            }
+            if (volume_elem) break;
+        }
+        
+        if (!volume_elem) {
+            std::cerr << "Audio: No suitable volume control found" << std::endl;
+            // Don't fail completely - we can still try software volume
+            std::cout << "Audio: Continuing without hardware volume control" << std::endl;
         }
         
         setupHiFiBerryAlsaEQ();
+        
+        // Test audio output
+        testAudioOutput();
         
         std::cout << "Audio: ✓ HiFiBerry " << hw_name << " ready" << std::endl;
         return true;
@@ -270,33 +295,40 @@ public:
     }
     
     bool setVolume(int volume) override {
-        if (!digital_elem) return false;
-        
         if (volume < 0) volume = 0;
         if (volume > 100) volume = 100;
         
+        current_volume = volume;
+        
+        if (!volume_elem) {
+            std::cout << "Audio: No hardware volume control, using software volume" << std::endl;
+            // Fallback to software volume control
+            std::string cmd = "amixer set Master " + std::to_string(volume) + "% 2>/dev/null";
+            system(cmd.c_str());
+            return true;
+        }
+        
         long min, max;
-        snd_mixer_selem_get_playback_volume_range(digital_elem, &min, &max);
+        snd_mixer_selem_get_playback_volume_range(volume_elem, &min, &max);
         
         long alsa_volume = min + (long)((max - min) * volume / 100.0);
         
-        int result = snd_mixer_selem_set_playback_volume_all(digital_elem, alsa_volume);
+        int result = snd_mixer_selem_set_playback_volume_all(volume_elem, alsa_volume);
         if (result < 0) {
             std::cerr << "Audio: Failed to set volume: " << snd_strerror(result) << std::endl;
             return false;
         }
         
-        current_volume = volume;
-        std::cout << "Audio: ✓ Hardware volume set to " << volume << "%" << std::endl;
+        std::cout << "Audio: ✓ Hardware volume (" << volume_control_name << ") set to " << volume << "%" << std::endl;
         return true;
     }
     
     int getVolume() override {
-        if (!digital_elem) return current_volume;
+        if (!volume_elem) return current_volume;
         
         long vol, min, max;
-        snd_mixer_selem_get_playback_volume_range(digital_elem, &min, &max);
-        snd_mixer_selem_get_playback_volume(digital_elem, SND_MIXER_SCHN_MONO, &vol);
+        snd_mixer_selem_get_playback_volume_range(volume_elem, &min, &max);
+        snd_mixer_selem_get_playback_volume(volume_elem, SND_MIXER_SCHN_MONO, &vol);
         
         current_volume = (int)((vol - min) * 100 / (max - min));
         return current_volume;
@@ -319,7 +351,29 @@ public:
 
 private:
     snd_mixer_t* mixer_handle = nullptr;
-    snd_mixer_elem_t* digital_elem = nullptr;
+    snd_mixer_elem_t* volume_elem = nullptr;
+    std::string volume_control_name = "";
+    
+    void testAudioOutput() {
+        std::cout << "Audio: Testing HiFiBerry output..." << std::endl;
+        
+        // Try to play a short test tone
+        const char* test_commands[] = {
+            "timeout 2s speaker-test -D hw:1,0 -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
+            "timeout 2s speaker-test -D plughw:1,0 -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
+            "timeout 2s speaker-test -t sine -f 1000 -l 1 -s 1 >/dev/null 2>&1",
+            NULL
+        };
+        
+        for (int i = 0; test_commands[i] != NULL; i++) {
+            if (system(test_commands[i]) == 0) {
+                std::cout << "Audio: ✓ Audio output test passed" << std::endl;
+                return;
+            }
+        }
+        
+        std::cout << "Audio: Warning - Audio output test failed, but continuing" << std::endl;
+    }
     
     void setupHiFiBerryAlsaEQ() {
         std::string home = getenv("HOME") ? getenv("HOME") : "/tmp";
@@ -333,14 +387,14 @@ private:
                << "}\n"
                << "ctl.!default {\n"
                << "  type hw\n"
-               << "  card 0\n"
+               << "  card 1\n"
                << "}\n"
                << "ctl.equal {\n"
                << "  type equal;\n"
                << "}\n"
                << "pcm.plugequal {\n"
                << "  type equal;\n"
-               << "  slave.pcm \"plughw:0,0\";\n"
+               << "  slave.pcm \"plughw:1,0\";\n"
                << "}\n"
                << "pcm.equal {\n"
                << "  type plug;\n"
@@ -362,7 +416,7 @@ private:
 };
 #endif // AUDIO_HARDWARE_DAC || AUDIO_HARDWARE_AMP4
 
-// BeoCreate 4 implementation (existing code)
+// BeoCreate 4 implementation (existing code - unchanged)
 #ifdef AUDIO_HARDWARE_BEOCREATE4
 class MultiAudioManager::BeoCreateAudioImpl : public BaseAudioImpl {
 public:
@@ -479,7 +533,7 @@ private:
 };
 #endif // AUDIO_HARDWARE_BEOCREATE4
 
-// MultiAudioManager implementation
+// MultiAudioManager implementation (rest remains the same)
 MultiAudioManager::MultiAudioManager() {
     last_update = std::chrono::steady_clock::now();
 }
@@ -516,6 +570,8 @@ bool MultiAudioManager::initialize() {
     if (success) {
         current_info.volume = impl->getVolume();
         std::cout << "Audio: ✓ " << getHardwareName() << " initialized" << std::endl;
+    } else {
+        std::cout << "Audio: ✗ " << getHardwareName() << " initialization failed" << std::endl;
     }
     
     return success;
