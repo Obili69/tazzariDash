@@ -379,28 +379,45 @@ private:
         std::string home = getenv("HOME") ? getenv("HOME") : "/tmp";
         std::string asound_path = home + "/.asoundrc";
         
+        std::cout << "Audio: Setting up ALSA EQ for HiFiBerry..." << std::endl;
+        
         std::ofstream asound(asound_path);
-        asound << "# HiFiBerry with alsaeq\n"
+        asound << "# HiFiBerry AMP4/DAC+ with alsaeq - FIXED\n"
+               << "# Force all audio through EQ\n"
                << "pcm.!default {\n"
                << "  type plug\n"
-               << "  slave.pcm plugequal;\n"
+               << "  slave.pcm \"plugequal\"\n"
                << "}\n"
+               << "\n"
+               << "# Route EQ to HiFiBerry hardware\n"
+               << "pcm.plugequal {\n"
+               << "  type equal\n"
+               << "  slave.pcm \"plughw:1,0\"\n"
+               << "}\n"
+               << "\n"
+               << "# Control interface\n"
                << "ctl.!default {\n"
                << "  type hw\n"
                << "  card 1\n"
                << "}\n"
+               << "\n"
+               << "# EQ control interface\n"
                << "ctl.equal {\n"
-               << "  type equal;\n"
+               << "  type equal\n"
                << "}\n"
-               << "pcm.plugequal {\n"
-               << "  type equal;\n"
-               << "  slave.pcm \"plughw:1,0\";\n"
-               << "}\n"
+               << "\n"
+               << "# Alternative names\n"
                << "pcm.equal {\n"
-               << "  type plug;\n"
-               << "  slave.pcm plugequal;\n"
+               << "  type plug\n"
+               << "  slave.pcm \"plugequal\"\n"
                << "}\n";
         asound.close();
+        
+        // Restart ALSA to apply new config
+        system("sudo /sbin/alsa force-reload >/dev/null 2>&1 || true");
+        
+        std::cout << "Audio: ✓ ALSA EQ configuration updated" << std::endl;
+        std::cout << "Audio: ✓ All audio will now route through EQ" << std::endl;
     }
     
     bool setAlsaEQBand(int band, int level) {

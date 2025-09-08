@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh - Build LVGL Dashboard with selectable audio hardware and auto-start
+# build.sh - Build LVGL Dashboard with selectable audio hardware
 
 set -e
 
@@ -16,7 +16,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 BUILD_TYPE="Debug"
 DEPLOYMENT_MODE=false
 AUDIO_HARDWARE="BEOCREATE4"
-SETUP_AUTOSTART=false
+SETUP_FAST_AUTOSTART=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
         --deployment|--prod)
             DEPLOYMENT_MODE=true
             BUILD_TYPE="Release"
-            SETUP_AUTOSTART=true  # Auto-enable autostart for deployment builds
+            SETUP_FAST_AUTOSTART=true  # Auto-enable fast autostart for deployment builds
             shift
             ;;
         --dev|--debug)
@@ -48,12 +48,12 @@ while [[ $# -gt 0 ]]; do
             AUDIO_HARDWARE="BEOCREATE4"
             shift
             ;;
-        --autostart)
-            SETUP_AUTOSTART=true
+        --fast-autostart)
+            SETUP_FAST_AUTOSTART=true
             shift
             ;;
         --no-autostart)
-            SETUP_AUTOSTART=false
+            SETUP_FAST_AUTOSTART=false
             shift
             ;;
         --help|-h)
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Build Options:"
             echo "  --dev, --debug      Debug build (windowed, default)"
-            echo "  --deployment, --prod Release build (fullscreen + autostart)"
+            echo "  --deployment, --prod Release build (fullscreen + fast autostart)"
             echo ""
             echo "Audio Hardware Options:"
             echo "  --audio-aux         Built-in 3.5mm jack (PulseAudio + alsaeq)"
@@ -71,7 +71,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --audio-beocreate4  HiFiBerry BeoCreate 4 (DSP REST API, default)"
             echo ""
             echo "Autostart Options:"
-            echo "  --autostart         Enable autostart (automatic for --deployment)"
+            echo "  --fast-autostart    Enable lightning-fast autostart (automatic for --deployment)"
             echo "  --no-autostart      Disable autostart"
             echo ""
             echo "Examples:"
@@ -98,7 +98,7 @@ done
 log_info "Building LVGL Dashboard..."
 log_info "Mode: $([ "$DEPLOYMENT_MODE" = true ] && echo "Deployment (fullscreen)" || echo "Development (windowed)")"
 log_info "Audio Hardware: $AUDIO_HARDWARE"
-log_info "Autostart: $([ "$SETUP_AUTOSTART" = true ] && echo "Enabled" || echo "Disabled")"
+log_info "Fast Autostart: $([ "$SETUP_FAST_AUTOSTART" = true ] && echo "Enabled" || echo "Disabled")"
 
 # Display audio hardware info
 case $AUDIO_HARDWARE in
@@ -124,7 +124,7 @@ case $AUDIO_HARDWARE in
         ;;
 esac
 
-# Check prerequisites (existing code remains the same)
+# Check prerequisites
 log_info "Checking prerequisites..."
 
 if [ ! -d "src" ] || [ ! -f "src/main.cpp" ]; then
@@ -158,7 +158,7 @@ for source in "${REQUIRED_SOURCES[@]}"; do
     fi
 done
 
-# Check dependencies based on audio hardware (existing code)
+# Check dependencies based on audio hardware
 log_info "Checking audio dependencies for $AUDIO_HARDWARE..."
 
 case $AUDIO_HARDWARE in
@@ -230,7 +230,7 @@ else
     RUN_SCRIPT="run_${AUDIO_HARDWARE,,}_dev.sh"
 fi
 
-# Create run script with audio hardware check (existing code)
+# Create run script with audio hardware check
 cat > "$RUN_SCRIPT" << EOF
 #!/bin/bash
 # Auto-generated run script for $AUDIO_HARDWARE hardware
@@ -269,161 +269,307 @@ case "$AUDIO_HARDWARE" in
 esac
 
 echo ""
+export DISPLAY=:0
 $EXECUTABLE
 EOF
 chmod +x "$RUN_SCRIPT"
-
-# Setup autostart if requested
-if [ "$SETUP_AUTOSTART" = true ]; then
-    log_info "Setting up autostart for deployment..."
-    
-    # Create autostart directory
-    mkdir -p ~/.config/autostart
-    
-    # Get absolute paths
-    DASHBOARD_PATH="$(pwd)"
-    EXECUTABLE_FULL_PATH="$DASHBOARD_PATH/$EXECUTABLE"
-    
-    # Remove any existing autostart configurations to avoid conflicts
-    log_info "Removing any existing autostart configurations..."
-    rm -f ~/.config/autostart/tazzari-dashboard-*.desktop 2>/dev/null || true
-    rm -f ~/start_tazzari_dashboard_*.sh 2>/dev/null || true
-    
-    # Create startup script
-    log_info "Creating startup script for $AUDIO_HARDWARE..."
-    cat > ~/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh << EOF
-#!/bin/bash
-# TazzariAudio Dashboard auto-start for $AUDIO_HARDWARE
-
-echo "=== TazzariAudio Dashboard Auto-Start ==="
-echo "Audio Hardware: $AUDIO_HARDWARE"
-echo "Build: Deployment Mode"
-
-# Wait for desktop environment
-sleep 15
-
-cd "$DASHBOARD_PATH"
-
-# Hardware-specific startup checks
-case "$AUDIO_HARDWARE" in
-    "AUX")
-        echo "Checking PulseAudio..."
-        if ! pulseaudio --check 2>/dev/null; then
-            echo "Starting PulseAudio..."
-            pulseaudio --start
-            sleep 3
-        fi
-        ;;
-    "DAC"|"AMP4")
-        echo "Checking HiFiBerry $AUDIO_HARDWARE..."
-        for i in {1..10}; do
-            if aplay -l | grep -q hifiberry 2>/dev/null; then
-                echo "✓ HiFiBerry device detected"
-                break
-            fi
-            sleep 2
-        done
-        ;;
-    "BEOCREATE4")
-        echo "Waiting for BeoCreate 4 DSP..."
-        for i in {1..20}; do
-            if curl -s http://localhost:13141/checksum >/dev/null 2>&1; then
-                echo "✓ DSP REST API ready"
-                break
-            fi
-            sleep 3
-        done
-        ;;
-esac
-
-# Start dashboard with restart capability
-echo "Starting TazzariAudio Dashboard..."
-while true; do
-    echo "\$(date): Starting dashboard..."
-    $EXECUTABLE_FULL_PATH
-    echo "\$(date): Dashboard exited, restarting in 3 seconds..."
-    sleep 3
-done
-EOF
-    chmod +x ~/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh
-    
-    # Create desktop autostart entry
-    cat > ~/.config/autostart/tazzari-dashboard-${AUDIO_HARDWARE,,}.desktop << EOF
-[Desktop Entry]
-Type=Application
-Name=TazzariAudio Dashboard ($AUDIO_HARDWARE)
-Exec=/home/$(whoami)/start_tazzari_dashboard_${AUDIO_HARDWARE,,}.sh
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
-Comment=TazzariAudio Dashboard with $AUDIO_HARDWARE audio hardware
-EOF
-    
-    # Hide cursor for deployment builds
-    if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr" ] && [ ! -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
-        log_info "Hiding mouse cursor for deployment..."
-        sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak 2>/dev/null || true
-    fi
-    
-    # Create control scripts
-    cat > stop_dashboard_${AUDIO_HARDWARE,,}.sh << 'EOF'
-#!/bin/bash
-echo "Stopping TazzariAudio Dashboard..."
-pkill -f "LVGLDashboard_.*_deployment"
-pkill -f "start_tazzari_dashboard"
-echo "Dashboard stopped"
-EOF
-    chmod +x stop_dashboard_${AUDIO_HARDWARE,,}.sh
-    
-    cat > show_cursor.sh << 'EOF'
-#!/bin/bash
-echo "Restoring mouse cursor..."
-if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
-    sudo mv /usr/share/icons/PiXflat/cursors/left_ptr.bak /usr/share/icons/PiXflat/cursors/left_ptr 2>/dev/null
-    echo "✓ Cursor restored (restart desktop to see effect)"
-else
-    echo "- Cursor backup not found"
-fi
-EOF
-    chmod +x show_cursor.sh
-    
-    cat > disable_autostart_${AUDIO_HARDWARE,,}.sh << EOF
-#!/bin/bash
-echo "Disabling TazzariAudio Dashboard autostart..."
-rm -f ~/.config/autostart/tazzari-dashboard-${AUDIO_HARDWARE,,}.desktop
-./stop_dashboard_${AUDIO_HARDWARE,,}.sh
-echo "✓ Autostart disabled"
-EOF
-    chmod +x disable_autostart_${AUDIO_HARDWARE,,}.sh
-    
-    log_success "Autostart configured!"
-    log_info ""
-    log_info "Autostart Control Scripts:"
-    log_info "  ./stop_dashboard_${AUDIO_HARDWARE,,}.sh      # Stop dashboard"
-    log_info "  ./show_cursor.sh                   # Show cursor for debugging"
-    log_info "  ./disable_autostart_${AUDIO_HARDWARE,,}.sh   # Disable autostart"
-    log_info ""
-fi
 
 log_success "Build complete!"
 echo ""
 echo "Executable: $EXECUTABLE"
 echo "Run script: ./$RUN_SCRIPT"
 
-if [ "$SETUP_AUTOSTART" = true ]; then
-    echo "Autostart: ✓ Enabled (starts on boot)"
-    echo ""
-    echo "Test autostart: sudo reboot"
-    echo "Or run manually: ./$RUN_SCRIPT"
+# Setup lightning-fast autostart if requested
+if [ "$SETUP_FAST_AUTOSTART" = true ]; then
+    log_info "Setting up lightning-fast autostart..."
+    
+    # Create the fast autostart setup script
+    cat > setup_fast_autostart.sh << 'EOF'
+#!/bin/bash
+# setup_fast_autostart.sh - Setup the NUTS FAST desktop autostart
+
+set -e
+
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[FAST]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+
+echo "=== Setup LIGHTNING-FAST Desktop Autostart ==="
+echo ""
+
+# Detect dashboard executable
+DASHBOARD_EXECUTABLE=""
+AUDIO_HARDWARE=""
+
+# Look for dashboard executables
+for hw in AUX AMP4 BEOCREATE4 DAC; do
+    for mode in deployment dev; do
+        EXEC_PATH="build/LVGLDashboard_${hw}_${mode}"
+        if [ -f "$EXEC_PATH" ]; then
+            DASHBOARD_EXECUTABLE="$EXEC_PATH"
+            AUDIO_HARDWARE="$hw"
+            MODE="$mode"
+            break 2
+        fi
+    done
+done
+
+if [ -z "$DASHBOARD_EXECUTABLE" ]; then
+    echo "❌ No dashboard executable found!"
+    echo "Expected files like: build/LVGLDashboard_AUX_deployment"
+    echo "Build first with: ./build.sh --deployment --audio-[hardware]"
+    exit 1
+fi
+
+DASHBOARD_PATH="$(pwd)"
+EXECUTABLE_FULL_PATH="$DASHBOARD_PATH/$DASHBOARD_EXECUTABLE"
+
+echo "🎯 Found: $DASHBOARD_EXECUTABLE"
+echo "🎯 Hardware: $AUDIO_HARDWARE"
+echo "🎯 Mode: $MODE"
+echo ""
+
+# Step 1: Nuclear cleanup of existing autostart methods
+log_info "Step 1: Cleaning up existing autostart methods..."
+
+# Kill any running dashboard
+pkill -f "LVGLDashboard" 2>/dev/null || true
+pkill -f "start_tazzari" 2>/dev/null || true
+sleep 1
+
+# Remove desktop autostart files
+rm -f ~/.config/autostart/tazzari*.desktop 2>/dev/null || true
+
+# Remove startup scripts
+rm -f ~/start_tazzari*.sh 2>/dev/null || true
+rm -f ~/start_dashboard*.sh 2>/dev/null || true
+
+# Disable systemd services
+systemctl --user disable tazzari-dashboard 2>/dev/null || true
+systemctl --user stop tazzari-dashboard 2>/dev/null || true
+sudo systemctl disable tazzari-dashboard* 2>/dev/null || true
+
+# Clear crontab entries
+(crontab -l 2>/dev/null | grep -v "tazzari\|TazzariAudio\|start_dashboard\|LVGLDashboard") | crontab - 2>/dev/null || true
+
+# Disable rc.local
+sudo tee /etc/rc.local > /dev/null << 'RCEOF'
+#!/bin/bash
+exit 0
+RCEOF
+sudo chmod +x /etc/rc.local
+
+log_success "✅ Cleanup complete"
+
+# Step 2: Test manual start first
+log_info "Step 2: Testing manual start..."
+
+export DISPLAY=:0
+echo "Testing: $EXECUTABLE_FULL_PATH"
+
+timeout 3s "$EXECUTABLE_FULL_PATH" && {
+    log_success "✅ Manual start works!"
+} || {
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 124 ]; then
+        log_success "✅ Manual start works (timeout reached)"
+    else
+        echo "❌ Manual start failed!"
+        echo "Try: export DISPLAY=:0 && $EXECUTABLE_FULL_PATH"
+        exit 1
+    fi
+}
+
+# Step 3: Create LIGHTNING-FAST desktop autostart
+log_info "Step 3: Creating lightning-fast desktop autostart..."
+
+mkdir -p ~/.config/autostart
+
+cat > ~/.config/autostart/tazzari-dashboard-fast.desktop << EOF
+[Desktop Entry]
+Type=Application
+Name=TazzariAudio Dashboard ($AUDIO_HARDWARE)
+Comment=Lightning-fast automotive dashboard
+Exec=$EXECUTABLE_FULL_PATH
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+StartupNotify=false
+X-GNOME-Autostart-Delay=0
+Path=$DASHBOARD_PATH
+Categories=AudioVideo;Automotive;
+Icon=applications-multimedia
+EOF
+
+log_success "⚡ Lightning-fast desktop autostart configured!"
+
+# Step 4: Create control scripts
+log_info "Step 4: Creating control scripts..."
+
+# Status script
+cat > dashboard_status.sh << 'EOFSTAT'
+#!/bin/bash
+echo "=== TazzariAudio Dashboard Status ==="
+
+if pgrep -f "LVGLDashboard" >/dev/null; then
+    PID=$(pgrep -f "LVGLDashboard")
+    UPTIME=$(ps -o etime= -p "$PID" 2>/dev/null | tr -d ' ')
+    echo "Dashboard: ⚡ Running (PID: $PID, Uptime: $UPTIME)"
 else
-    echo "Autostart: Disabled (manual start only)"
+    echo "Dashboard: ❌ Not running"
+fi
+
+if [ -f ~/.config/autostart/tazzari-dashboard-fast.desktop ]; then
+    echo "Autostart: ⚡ Lightning-fast desktop autostart enabled"
+else
+    echo "Autostart: ❌ Not configured"
+fi
+EOFSTAT
+chmod +x dashboard_status.sh
+
+# Stop script
+cat > stop_dashboard.sh << 'EOFSTOP'
+#!/bin/bash
+echo "Stopping TazzariAudio Dashboard..."
+pkill -f "LVGLDashboard" 2>/dev/null || true
+sleep 1
+if pgrep -f "LVGLDashboard" >/dev/null; then
+    echo "⚠ Still running"
+else
+    echo "✅ Stopped"
+fi
+EOFSTOP
+chmod +x stop_dashboard.sh
+
+# Manual start script
+cat > start_dashboard_manual.sh << EOF2
+#!/bin/bash
+echo "Starting TazzariAudio Dashboard manually..."
+export DISPLAY=:0
+cd "$DASHBOARD_PATH"
+exec "$EXECUTABLE_FULL_PATH"
+EOF2
+chmod +x start_dashboard_manual.sh
+
+# Disable autostart script
+cat > disable_fast_autostart.sh << 'EOFDIS'
+#!/bin/bash
+echo "Disabling lightning-fast autostart..."
+rm -f ~/.config/autostart/tazzari-dashboard-fast.desktop
+echo "✅ Fast autostart disabled"
+EOFDIS
+chmod +x disable_fast_autostart.sh
+
+# Show cursor script (for debugging)
+cat > show_cursor.sh << 'EOFCUR'
+#!/bin/bash
+echo "Showing cursor for debugging..."
+if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
+    sudo mv /usr/share/icons/PiXflat/cursors/left_ptr.bak /usr/share/icons/PiXflat/cursors/left_ptr 2>/dev/null
+    echo "✅ Cursor restored"
+else
+    echo "- Cursor backup not found"
+fi
+EOFCUR
+chmod +x show_cursor.sh
+
+# Step 5: Configure auto-login if needed
+log_info "Step 5: Checking auto-login configuration..."
+
+if who | grep -q "$(whoami)"; then
+    log_success "✅ User $(whoami) is logged in"
+else
+    log_warning "⚠ User not logged in - desktop autostart needs user login"
+fi
+
+if [ -f "/etc/lightdm/lightdm.conf" ] && grep -q "autologin-user=$(whoami)" /etc/lightdm/lightdm.conf 2>/dev/null; then
+    log_success "✅ Auto-login configured"
+else
+    echo ""
+    echo "⚠ Auto-login not configured. Desktop autostart requires user login."
+    echo ""
+    read -p "Configure auto-login for $(whoami)? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if command -v lightdm >/dev/null; then
+            sudo mkdir -p /etc/lightdm
+            
+            # Backup existing config
+            if [ -f "/etc/lightdm/lightdm.conf" ]; then
+                sudo cp /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.backup
+            fi
+            
+            # Create auto-login config
+            sudo tee /etc/lightdm/lightdm.conf > /dev/null << EOFLIGHT
+[Seat:*]
+autologin-user=$(whoami)
+autologin-user-timeout=0
+user-session=LXDE-pi
+EOFLIGHT
+            log_success "✅ Auto-login configured for $(whoami)"
+        else
+            log_warning "lightdm not found - configure manually"
+        fi
+    fi
+fi
+
+# Step 6: Hide cursor for deployment mode
+if [[ "$DASHBOARD_EXECUTABLE" == *"deployment"* ]]; then
+    log_info "Step 6: Hiding cursor for deployment mode..."
+    
+    if [ -f "/usr/share/icons/PiXflat/cursors/left_ptr" ] && [ ! -f "/usr/share/icons/PiXflat/cursors/left_ptr.bak" ]; then
+        sudo mv /usr/share/icons/PiXflat/cursors/left_ptr /usr/share/icons/PiXflat/cursors/left_ptr.bak 2>/dev/null || true
+        log_success "✅ Mouse cursor hidden"
+    else
+        echo "- Cursor already hidden or not found"
+    fi
+fi
+
+log_success "=== LIGHTNING-FAST AUTOSTART SETUP COMPLETE! ==="
+echo ""
+echo "⚡ **NUTS FAST desktop autostart configured!**"
+echo ""
+echo "What was set up:"
+echo "  ✅ Direct executable call (no scripts, no delays)"
+echo "  ✅ Desktop autostart (starts when desktop loads)"
+echo "  ✅ Background flashing fast startup"
+echo "  ✅ Clean control scripts"
+echo ""
+echo "Control commands:"
+echo "  ./dashboard_status.sh         # Check status"
+echo "  ./stop_dashboard.sh           # Stop dashboard"
+echo "  ./start_dashboard_manual.sh   # Manual start"
+echo "  ./show_cursor.sh              # Debug mode"
+echo "  ./disable_fast_autostart.sh   # Disable autostart"
+echo ""
+echo "🚀 **Test the lightning speed:**"
+echo "   sudo reboot"
+echo ""
+echo "Expected: Background flashing → dashboard appears INSTANTLY! ⚡"
+EOF
+    chmod +x setup_fast_autostart.sh
+    
+    # Run the fast autostart setup
+    if ./setup_fast_autostart.sh; then
+        log_success "⚡ Lightning-fast autostart configured!"
+    else
+        log_warning "Fast autostart setup failed, but build completed successfully"
+    fi
+else
+    echo "Fast Autostart: Disabled (manual start only)"
     echo ""
     echo "Run manually: ./$RUN_SCRIPT"
+    echo "Or setup autostart later: ./setup_fast_autostart.sh"
 fi
 
 echo ""
 
-# Show system status for selected audio hardware (existing code)
+# Show system status for selected audio hardware
 case $AUDIO_HARDWARE in
     "AUX")
         echo "Built-in Audio Status:"
@@ -483,10 +629,11 @@ else
 fi
 
 echo ""
-if [ "$SETUP_AUTOSTART" = true ]; then
+if [ "$SETUP_FAST_AUTOSTART" = true ]; then
     echo "🚗 TazzariAudio Dashboard ready for deployment!"
-    echo "   Reboot to test autostart: sudo reboot"
+    echo "   ⚡ LIGHTNING-FAST autostart configured!"
+    echo "   🧪 Test with: sudo reboot"
 else
     echo "🚗 TazzariAudio Dashboard ready for development!"
-    echo "   Run manually: ./$RUN_SCRIPT"
+    echo "   🎮 Run manually: ./$RUN_SCRIPT"
 fi
