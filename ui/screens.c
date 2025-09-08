@@ -307,6 +307,7 @@ void create_screen_main() {
             lv_tabview_set_tab_bar_size(obj, 32);
             lv_obj_set_pos(obj, 25, 188);
             lv_obj_set_size(obj, 284, 350);
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE|LV_OBJ_FLAG_SCROLL_CHAIN_HOR|LV_OBJ_FLAG_SCROLL_CHAIN_VER|LV_OBJ_FLAG_SCROLL_ELASTIC|LV_OBJ_FLAG_SCROLL_MOMENTUM|LV_OBJ_FLAG_SCROLL_WITH_ARROW|LV_OBJ_FLAG_SNAPPABLE);
             {
                 lv_obj_t *parent_obj = obj;
                 {
@@ -333,6 +334,9 @@ void create_screen_main() {
                             lv_arc_set_value(obj, 25);
                             lv_arc_set_bg_end_angle(obj, 60);
                             lv_obj_add_event_cb(obj, action_set_global_eez_event, LV_EVENT_VALUE_CHANGED, (void *)0);
+                            lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLL_ELASTIC|LV_OBJ_FLAG_SCROLL_MOMENTUM|LV_OBJ_FLAG_SCROLL_WITH_ARROW);
+                            lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+                            lv_obj_set_scroll_snap_x(obj, LV_DIR_NONE);
                             lv_obj_set_style_bg_color(obj, lv_color_hex(0xff44925e), LV_PART_KNOB | LV_STATE_DEFAULT);
                             lv_obj_set_style_bg_color(obj, lv_color_hex(0xff44925e), LV_PART_MAIN | LV_STATE_DEFAULT);
                             lv_obj_set_style_arc_color(obj, lv_color_hex(0xff44925e), LV_PART_INDICATOR | LV_STATE_DEFAULT);
