@@ -99,7 +99,8 @@ file(GLOB_RECURSE UI_SOURCES "ui/*.c" "ui/*.cpp")
 set(SOURCES
     src/main.cpp
     src/SerialCommunication.cpp
-    src/MultiAudioManager.cpp  # New unified audio manager
+    src/MultiAudioManager.cpp
+    src/PersistentStorage.cpp    # ADD THIS LINE - This was missing!
 )
 
 # Add UI sources
