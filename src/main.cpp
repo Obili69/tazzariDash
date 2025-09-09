@@ -1,4 +1,4 @@
-// NUTS FAST main.cpp - Ultra-fast deployment startup system
+// NUTS FAST main.cpp - Ultra-fast deployment startup system with Persistent Storage
 #include <lvgl.h>
 #include <thread>
 #include <chrono>
@@ -11,6 +11,7 @@
 // Project headers
 #include "MultiAudioManager.h"
 #include "SerialCommunication.h"
+#include "PersistentStorage.h"
 
 // Include UI files
 extern "C" {
@@ -44,6 +45,7 @@ private:
     // Component managers
     std::unique_ptr<MultiAudioManager> audio_manager;
     std::unique_ptr<SerialCommunication> serial_comm;
+    std::unique_ptr<PersistentStorage> storage;
     
     // Background initialization futures
     std::future<bool> audio_init_future;
@@ -57,6 +59,7 @@ private:
     std::chrono::steady_clock::time_point last_update;
     std::chrono::steady_clock::time_point last_odo_save;
     std::chrono::steady_clock::time_point startup_time;
+    std::chrono::steady_clock::time_point ui_restore_time;
     
 #ifdef DEPLOYMENT_BUILD
     const int UPDATE_INTERVAL = 200;    // Slower updates in deployment for performance
@@ -67,6 +70,10 @@ private:
     const int ODO_SAVE_INTERVAL = 2000; // Save odo/trip every 2 seconds
     const int STARTUP_ICON_DURATION = 2000; // 2 seconds startup test
 #endif
+    
+    // Persistent data storage
+    DashboardData dashboard_data;
+    bool ui_restore_needed = false;
     
     // Vehicle data variables
     float speed_kmh = 0.0;
@@ -98,10 +105,6 @@ private:
     // Startup state
     bool startup_icons_active = true;
     
-    // Storage
-    float saved_odo = 0.0;
-    float saved_trip = 0.0;
-    
     // Audio state
     std::atomic<bool> audio_initialized{false};
     std::atomic<bool> serial_initialized{false};
@@ -115,6 +118,9 @@ public:
         std::cout << "=== LVGL Dashboard Starting Up ===" << std::endl;
         std::cout << "Audio Hardware: " << MultiAudioManager::getHardwareName() << std::endl;
 #endif
+        
+        // Initialize persistent storage FIRST
+        storage = std::make_unique<PersistentStorage>("dashboard_data");
         
         // Initialize LVGL first (critical path)
 #ifdef DEPLOYMENT_BUILD
@@ -146,7 +152,7 @@ public:
         // NUTS FAST: Load saved data immediately (synchronous, fast)
         loadFromStorage();
         
-        // NUTS FAST: Show UI immediately with default values
+        // NUTS FAST: Show UI immediately with loaded values
         auto now = std::chrono::steady_clock::now();
         last_update = now;
         last_odo_save = now;
@@ -158,6 +164,9 @@ public:
         
         // Update display with loaded data immediately
         updateDisplay();
+        
+        // Schedule UI restoration after startup
+        ui_restore_needed = true;
         
 #ifdef DEPLOYMENT_BUILD
         // NUTS FAST: Initialize components in BACKGROUND
@@ -651,37 +660,46 @@ public:
         }
         else if(obj == objects.arc_volume && audio_initialized) {
             int32_t volume = lv_arc_get_value(obj);
+            dashboard_data.audio_volume = volume;  // Store in persistent data
 #ifndef DEPLOYMENT_BUILD
             std::cout << "UI: Volume changed to " << volume << "%" << std::endl;
 #endif
             if (audio_manager) audio_manager->setVolume(volume);
+            saveToStorage();  // Auto-save audio changes
         }
-        // EQ sliders (universal)
+        // EQ sliders with persistent storage
         else if(obj == objects.sld_base && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+            dashboard_data.audio_bass = value - 50;  // Convert 0-100 to -50/+50
 #ifndef DEPLOYMENT_BUILD
-            std::cout << "UI: Bass EQ: " << value << std::endl;
+            std::cout << "UI: Bass EQ: " << (value - 50) << std::endl;
 #endif
             if (audio_manager) audio_manager->setBass(value - 50);
+            saveToStorage();  // Auto-save
         }
         else if(obj == objects.sld_mid && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+            dashboard_data.audio_mid = value - 50;  // Convert 0-100 to -50/+50
 #ifndef DEPLOYMENT_BUILD
-            std::cout << "UI: Mid EQ: " << value << std::endl;
+            std::cout << "UI: Mid EQ: " << (value - 50) << std::endl;
 #endif
             if (audio_manager) audio_manager->setMid(value - 50);
+            saveToStorage();  // Auto-save
         }
         else if(obj == objects.sld_high && audio_initialized) {
             int32_t value = lv_slider_get_value(obj);
+            dashboard_data.audio_high = value - 50;  // Convert 0-100 to -50/+50
 #ifndef DEPLOYMENT_BUILD
-            std::cout << "UI: High EQ: " << value << std::endl;
+            std::cout << "UI: High EQ: " << (value - 50) << std::endl;
 #endif
             if (audio_manager) audio_manager->setHigh(value - 50);
+            saveToStorage();  // Auto-save
         }
     }
     
     void resetTrip() {
         trip_km = 0.0;
+        dashboard_data.trip_km = 0.0;
         saveToStorage();
 #ifndef DEPLOYMENT_BUILD
         std::cout << "Trip: Counter reset to 0.0 km" << std::endl;
@@ -689,28 +707,74 @@ public:
     }
     
     void loadFromStorage() {
-        std::ifstream file("dashboard_data.txt");
-        if (file.is_open()) {
-            file >> odo_km >> trip_km;
-            file.close();
+        if (storage->loadData(dashboard_data)) {
+            // Apply loaded data to current variables
+            odo_km = dashboard_data.odo_km;
+            trip_km = dashboard_data.trip_km;
+            
 #ifndef DEPLOYMENT_BUILD
-            std::cout << "Storage: Loaded ODO=" << odo_km << "km, TRIP=" << trip_km << "km" << std::endl;
+            std::cout << "Storage: ✓ Loaded ODO=" << odo_km << "km, TRIP=" << trip_km << "km" << std::endl;
+            std::cout << "Storage: Audio settings loaded: Vol=" << dashboard_data.audio_volume 
+                     << "%, Bass=" << dashboard_data.audio_bass << ", Mid=" << dashboard_data.audio_mid 
+                     << ", High=" << dashboard_data.audio_high << std::endl;
 #endif
         } else {
-            odo_km = saved_odo;
-            trip_km = saved_trip;
+            // Use defaults
+            odo_km = 0.0f;
+            trip_km = 0.0f;
+            dashboard_data.audio_volume = 50;
+            dashboard_data.audio_bass = 0;
+            dashboard_data.audio_mid = 0;
+            dashboard_data.audio_high = 0;
 #ifndef DEPLOYMENT_BUILD
-            std::cout << "Storage: Using defaults ODO=" << odo_km << "km, TRIP=" << trip_km << "km" << std::endl;
+            std::cout << "Storage: Using default values" << std::endl;
 #endif
         }
+        
+        // Update current data with any runtime changes
+        dashboard_data.odo_km = odo_km;
+        dashboard_data.trip_km = trip_km;
     }
     
     void saveToStorage() {
-        std::ofstream file("dashboard_data.txt");
-        if (file.is_open()) {
-            file << odo_km << " " << trip_km;
-            file.close();
+        // Update data structure with current values
+        dashboard_data.odo_km = odo_km;
+        dashboard_data.trip_km = trip_km;
+        
+        // Save using power-cut safe method
+        if (!storage->saveData(dashboard_data)) {
+            std::cout << "Storage: Warning - save failed!" << std::endl;
         }
+    }
+    
+    void restoreUISettings() {
+        if (!ui_restore_needed) return;
+        
+#ifndef DEPLOYMENT_BUILD
+        std::cout << "UI: Restoring settings from storage" << std::endl;
+#endif
+        
+        // Restore audio settings to UI sliders
+        lv_arc_set_value(objects.arc_volume, dashboard_data.audio_volume);
+        lv_slider_set_value(objects.sld_base, dashboard_data.audio_bass + 50, LV_ANIM_OFF);  // Convert -50/+50 to 0-100
+        lv_slider_set_value(objects.sld_mid, dashboard_data.audio_mid + 50, LV_ANIM_OFF);
+        lv_slider_set_value(objects.sld_high, dashboard_data.audio_high + 50, LV_ANIM_OFF);
+        
+        // Apply audio settings to hardware (only if audio is initialized)
+        if (audio_manager && audio_initialized) {
+            audio_manager->setVolume(dashboard_data.audio_volume);
+            audio_manager->setBass(dashboard_data.audio_bass);
+            audio_manager->setMid(dashboard_data.audio_mid);
+            audio_manager->setHigh(dashboard_data.audio_high);
+            
+#ifndef DEPLOYMENT_BUILD
+            std::cout << "UI: ✓ Audio settings applied: Vol=" << dashboard_data.audio_volume 
+                     << "%, Bass=" << dashboard_data.audio_bass << ", Mid=" << dashboard_data.audio_mid 
+                     << ", High=" << dashboard_data.audio_high << std::endl;
+#endif
+        }
+        
+        ui_restore_needed = false;
     }
     
     void run() {
@@ -727,9 +791,21 @@ public:
             if (startup_icons_active && startup_elapsed >= STARTUP_ICON_DURATION) {
                 startup_icons_active = false;
                 hideAllIcons();
+                
+                // Start UI restoration timer after startup icons are done
+                ui_restore_time = current_time;
+                
 #ifndef DEPLOYMENT_BUILD
                 std::cout << "Startup: Icon test complete" << std::endl;
 #endif
+            }
+            
+            // Restore UI settings 500ms after startup icons are hidden
+            if (ui_restore_needed) {
+                auto restore_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - ui_restore_time).count();
+                if (restore_elapsed >= 500) {  // Wait 500ms for UI to settle
+                    restoreUISettings();
+                }
             }
             
             // Process vehicle data (only if serial is initialized)
@@ -772,10 +848,8 @@ public:
             // Save data periodically
             auto save_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_odo_save).count();
             if(save_elapsed >= ODO_SAVE_INTERVAL) {
-                if(abs(odo_km - saved_odo) >= 1.0 || abs(trip_km - saved_trip) >= 1.0) {
+                if(abs(odo_km - dashboard_data.odo_km) >= 1.0 || abs(trip_km - dashboard_data.trip_km) >= 1.0) {
                     saveToStorage();
-                    saved_odo = odo_km;
-                    saved_trip = trip_km;
                 }
                 last_odo_save = current_time;
             }
@@ -805,6 +879,9 @@ public:
         if (serial_comm) {
             serial_comm->shutdown();
         }
+        
+        // Final save before shutdown
+        saveToStorage();
     }
 };
 
