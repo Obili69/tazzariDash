@@ -60,6 +60,7 @@ private:
     std::chrono::steady_clock::time_point last_odo_save;
     std::chrono::steady_clock::time_point startup_time;
     std::chrono::steady_clock::time_point ui_restore_time;
+    std::chrono::steady_clock::time_point last_chart_update;
     
 #ifdef DEPLOYMENT_BUILD
     const int UPDATE_INTERVAL = 200;    // Slower updates in deployment for performance
