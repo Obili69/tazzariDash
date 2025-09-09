@@ -252,7 +252,7 @@ public:
 #endif
         
         // Initialize Serial Communication
-        serial_comm = std::make_unique<SerialCommunication>("/dev/ttyACM0", 115200);
+        serial_comm = std::make_unique<SerialCommunication>("/dev/ttyUSB0", 115200);
         if (!serial_comm->initialize()) {
 #ifdef DEPLOYMENT_BUILD
             // Silent in deployment
