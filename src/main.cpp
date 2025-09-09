@@ -830,7 +830,6 @@ public:
             auto update_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_update).count();
             if(update_elapsed >= UPDATE_INTERVAL) {
                 updateDisplay();
-                updateCurrentGraph();
                 
                 if (!startup_icons_active) {
                     updateLightingStates();
@@ -843,6 +842,13 @@ public:
                 trip_km += distance_delta;
                 
                 last_update = current_time;
+            }
+            
+            // Update power chart every 1 second (10 minutes of data)
+            auto chart_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_chart_update).count();
+            if(chart_elapsed >= 1000) {  // 1 second interval
+                updateCurrentGraph();
+                last_chart_update = current_time;
             }
             
             // Save data periodically
