@@ -12,6 +12,10 @@ SerialCommunication::SerialCommunication(const char* port, int baud)
     auto now = std::chrono::steady_clock::now();
     last_auto_time = now;
     last_bms_time = now;
+    
+    // Initialize buffer
+    data_index = 0;
+    memset(packet_buffer, 0, sizeof(packet_buffer));
 }
 
 SerialCommunication::~SerialCommunication() {
@@ -80,7 +84,7 @@ bool SerialCommunication::setupSerial() {
         return false;
     }
     
-    std::cout << "Serial: Port opened successfully" << std::endl;
+    std::cout << "Serial: ✓ Port opened successfully - EMV noise immune parser ready" << std::endl;
     return true;
 }
 
@@ -98,6 +102,7 @@ uint8_t SerialCommunication::calculateChecksum(uint8_t* data, size_t length) {
     return checksum;
 }
 
+// MAIN PROCESSING FUNCTION - EMV Noise Immune Scanner
 void SerialCommunication::processData() {
     if (serial_fd < 0) return;
     
@@ -105,196 +110,191 @@ void SerialCommunication::processData() {
     ssize_t bytes_read = read(serial_fd, buffer, sizeof(buffer));
     
     if (bytes_read > 0) {
-        static uint32_t last_debug = 0;
-        uint32_t current_time = getCurrentTimeMs();
-        if (current_time - last_debug > 5000) {
-            std::cout << "Serial: Received " << bytes_read << " bytes" << std::endl;
-            last_debug = current_time;
+        // Add new data to our rolling buffer
+        for (ssize_t i = 0; i < bytes_read; i++) {
+            if (data_index < sizeof(packet_buffer) - 1) {
+                packet_buffer[data_index++] = buffer[i];
+            } else {
+                // Buffer full, shift everything left and add new byte
+                memmove(packet_buffer, packet_buffer + 1, sizeof(packet_buffer) - 1);
+                packet_buffer[sizeof(packet_buffer) - 1] = buffer[i];
+                data_index = sizeof(packet_buffer) - 1;
+            }
         }
         
-        for (ssize_t i = 0; i < bytes_read; i++) {
-            uint8_t byte = buffer[i];
-            
-            try {
-                switch (packet_state) {
-                    case 0: // Waiting for start byte
-                        if (byte == PACKET_START_BYTE) {
-                            packet_state = 1;
-                            // Reset packet data
-                            packet_type = 0;
-                            packet_length = 0;
-                            data_index = 0;
-                        }
-                        break;
-                        
-                    case 1: // Got start byte, waiting for packet type
-                        if (byte == BMS_PACKET_TYPE || byte == AUTO_PACKET_TYPE) {
-                            packet_type = byte;
-                            packet_state = 2;
-                        } else {
-                            std::cout << "Serial: Invalid packet type: " << (int)byte << std::endl;
-                            packet_state = 0;
-                        }
-                        break;
-                        
-                    case 2: // Got type, waiting for length
-                        packet_length = byte;
-                        if (packet_length > 0 && packet_length <= sizeof(packet_buffer)) {
-                            data_index = 0;
-                            packet_state = 3;
-                        } else {
-                            std::cout << "Serial: Invalid packet length: " << (int)packet_length << std::endl;
-                            packet_state = 0;
-                        }
-                        break;
-                        
-                    case 3: // Reading data
-                        if (data_index < packet_length && data_index < sizeof(packet_buffer)) {
-                            packet_buffer[data_index++] = byte;
-                            if (data_index >= packet_length) {
-                                packet_state = 4;
-                            }
-                        } else {
-                            std::cout << "Serial: Buffer overflow protection triggered" << std::endl;
-                            packet_state = 0;
-                        }
-                        break;
-                        
-                    case 4: { // Reading checksum
-                        if (packet_length + 2 <= sizeof(packet_buffer)) {
-                            uint8_t checksum_data[packet_length + 2];
-                            checksum_data[0] = packet_type;
-                            checksum_data[1] = packet_length;
-                            memcpy(&checksum_data[2], packet_buffer, packet_length);
-                            uint8_t calculated = calculateChecksum(checksum_data, packet_length + 2);
-                            
-                            if (byte == calculated) {
-                                packet_state = 5;
-                            } else {
-                                std::cout << "Serial: Checksum mismatch! Expected: " << (int)calculated 
-                                         << ", Got: " << (int)byte << std::endl;
-                                packet_state = 0; // Reset and continue
-                            }
-                        } else {
-                            std::cout << "Serial: Checksum buffer too small" << std::endl;
-                            packet_state = 0;
-                        }
-                        break;
-                    }
-                        
-                    case 5: // Checking end byte
-                        if (byte == PACKET_END_BYTE) {
-                            // Only call handleReceivedPacket if we got here safely
-                            handleReceivedPacket();
-                        } else {
-                            std::cout << "Serial: Invalid end byte: " << (int)byte << std::endl;
-                        }
-                        packet_state = 0;
-                        break;
-                        
-                    default:
-                        std::cout << "Serial: Invalid packet state: " << packet_state << std::endl;
-                        packet_state = 0;
-                        break;
-                }
-            } catch (...) {
-                std::cout << "Serial: Exception in packet processing, resetting state" << std::endl;
-                packet_state = 0;
-                data_index = 0;
-                packet_length = 0;
-                packet_type = 0;
-            }
+        // Look for complete packets in our buffer
+        findAndProcessPackets();
+        
+        static uint32_t last_debug = 0;
+        uint32_t current_time = getCurrentTimeMs();
+        if (current_time - last_debug > 10000) {  // Every 10 seconds
+            std::cout << "Serial: ✓ Buffer active (" << data_index << " bytes)" << std::endl;
+            last_debug = current_time;
         }
     } else if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         std::cout << "Serial: Read error: " << strerror(errno) << std::endl;
     }
 }
 
-void SerialCommunication::handleReceivedPacket() {
-    auto now = std::chrono::steady_clock::now();
-    
-    // Add bounds checking to prevent segfaults
-    if (packet_length == 0 || packet_length > sizeof(packet_buffer)) {
-        std::cout << "Serial: Invalid packet length: " << packet_length << std::endl;
-        return;
-    }
-    
-    if (packet_type == BMS_PACKET_TYPE) {
-        // Check if packet size matches expected structure
-        if (packet_length != sizeof(bms_data_t)) {
-            std::cout << "Serial: BMS packet size mismatch. Expected: " << sizeof(bms_data_t) 
-                     << ", Got: " << packet_length << std::endl;
+// PACKET SCANNER - Never gets stuck, ignores EMV noise
+void SerialCommunication::findAndProcessPackets() {
+    // Scan through buffer looking for start bytes
+    for (int i = 0; i <= (int)data_index - 6; i++) {  // Minimum packet is 6 bytes
+        
+        // Found potential start of packet?
+        if (packet_buffer[i] == PACKET_START_BYTE) {
+            
+            // Check if we have enough bytes for header inspection
+            if (i + 2 >= data_index) break;  // Not enough data yet
+            
+            uint8_t packet_type = packet_buffer[i + 1];
+            uint8_t packet_length = packet_buffer[i + 2];
+            
+            // Validate packet type (quick filter for noise)
+            if (packet_type != BMS_PACKET_TYPE && packet_type != AUTO_PACKET_TYPE) {
+                continue;  // Invalid type, keep scanning
+            }
+            
+            // Validate packet length (reasonable bounds check)
+            if (packet_length == 0 || packet_length > 200) {
+                continue;  // Invalid length, keep scanning
+            }
+            
+            // Calculate total packet size: START + TYPE + LENGTH + DATA + CHECKSUM + END
+            int total_packet_size = 1 + 1 + 1 + packet_length + 1 + 1;
+            
+            // Do we have the complete packet?
+            if (i + total_packet_size > data_index) {
+                break;  // Incomplete packet, wait for more data
+            }
+            
+            // Check end byte (quick validation)
+            if (packet_buffer[i + total_packet_size - 1] != PACKET_END_BYTE) {
+                continue;  // Wrong end byte, keep scanning
+            }
+            
+            // Validate checksum (final validation step)
+            uint8_t* data_start = &packet_buffer[i + 3];  // Skip START, TYPE, LENGTH
+            uint8_t received_checksum = packet_buffer[i + total_packet_size - 2];
+            
+            uint8_t checksum_data[packet_length + 2];
+            checksum_data[0] = packet_type;
+            checksum_data[1] = packet_length;
+            memcpy(&checksum_data[2], data_start, packet_length);
+            uint8_t calculated_checksum = calculateChecksum(checksum_data, packet_length + 2);
+            
+            if (received_checksum != calculated_checksum) {
+                static uint32_t last_checksum_debug = 0;
+                if (getCurrentTimeMs() - last_checksum_debug > 3000) {
+                    std::cout << "Serial: Checksum mismatch (EMV noise?) - continuing scan" << std::endl;
+                    last_checksum_debug = getCurrentTimeMs();
+                }
+                continue;  // Bad checksum, keep scanning
+            }
+            
+            // 🎉 WE FOUND A VALID PACKET! 🎉
+            processValidPacket(packet_type, data_start, packet_length);
+            
+            // Remove processed packet from buffer
+            int remaining_bytes = data_index - (i + total_packet_size);
+            if (remaining_bytes > 0) {
+                memmove(packet_buffer, &packet_buffer[i + total_packet_size], remaining_bytes);
+            }
+            data_index = remaining_bytes;
+            
+            // Look for more packets in remaining buffer
+            if (data_index > 6) {
+                findAndProcessPackets();  // Recursive scan
+            }
             return;
         }
-        
-        // Safe copy with bounds checking
-        memset(&received_bms_data, 0, sizeof(bms_data_t)); // Clear first
-        memcpy(&received_bms_data, packet_buffer, std::min((size_t)packet_length, sizeof(bms_data_t)));
-        
-        new_bms_data = true;
-        last_bms_time = now;
-        
-        if (bms_callback) {
-            try {
-                bms_callback(received_bms_data);
-            } catch (...) {
-                std::cout << "Serial: Exception in BMS callback" << std::endl;
+    }
+    
+    // Automatic buffer cleanup to prevent memory issues
+    if (data_index > sizeof(packet_buffer) - 100) {
+        // Keep only the last 100 bytes (might contain partial packet)
+        memmove(packet_buffer, packet_buffer + data_index - 100, 100);
+        data_index = 100;
+        std::cout << "Serial: Buffer cleanup - keeping recent data for partial packets" << std::endl;
+    }
+}
+
+// PACKET PROCESSOR - Handle validated packets
+void SerialCommunication::processValidPacket(uint8_t packet_type, uint8_t* data, uint8_t length) {
+    auto now = std::chrono::steady_clock::now();
+    
+    if (packet_type == BMS_PACKET_TYPE) {
+        // Validate BMS packet size
+        if (length == sizeof(bms_data_t)) {
+            memcpy(&received_bms_data, data, sizeof(bms_data_t));
+            new_bms_data = true;
+            last_bms_time = now;
+            
+            // Call callback if registered
+            if (bms_callback) {
+                try {
+                    bms_callback(received_bms_data);
+                } catch (...) {
+                    std::cout << "Serial: Exception in BMS callback" << std::endl;
+                }
             }
-        }
-        
-        static uint32_t last_debug = 0;
-        uint32_t current_time = getCurrentTimeMs();
-        if (current_time - last_debug > 3000) {
-            std::cout << "Serial: BMS - SOC:" << received_bms_data.soc << "%, "
-                     << "Current:" << received_bms_data.current << "A, "
-                     << "Voltage:" << received_bms_data.totalVoltage << "V" << std::endl;
-            last_debug = current_time;
+            
+            // Debug output (reduced frequency)
+            static uint32_t last_bms_debug = 0;
+            uint32_t current_time = getCurrentTimeMs();
+            if (current_time - last_bms_debug > 5000) {  // Every 5 seconds
+                std::cout << "Serial: ✓ BMS - SOC:" << received_bms_data.soc << "%, "
+                         << "Current:" << received_bms_data.current << "A, "
+                         << "Voltage:" << received_bms_data.totalVoltage << "V, "
+                         << "Temp:" << received_bms_data.minTemp << "-" << received_bms_data.maxTemp << "°C" << std::endl;
+                last_bms_debug = current_time;
+            }
+        } else {
+            std::cout << "Serial: BMS packet wrong size: got " << (int)length << ", expected " << sizeof(bms_data_t) << std::endl;
         }
         
     } else if (packet_type == AUTO_PACKET_TYPE) {
-        // Check if packet size matches expected structure
-        if (packet_length != sizeof(automotive_data_t)) {
-            std::cout << "Serial: Auto packet size mismatch. Expected: " << sizeof(automotive_data_t) 
-                     << ", Got: " << packet_length << std::endl;
-            return;
-        }
-        
-        // Safe copy with bounds checking
-        memset(&received_auto_data, 0, sizeof(automotive_data_t)); // Clear first
-        memcpy(&received_auto_data, packet_buffer, std::min((size_t)packet_length, sizeof(automotive_data_t)));
-        
-        new_auto_data = true;
-        last_auto_time = now;
-        
-        if (auto_callback) {
-            try {
-                auto_callback(received_auto_data);
-            } catch (...) {
-                std::cout << "Serial: Exception in Auto callback" << std::endl;
+        // Validate Automotive packet size
+        if (length == sizeof(automotive_data_t)) {
+            memcpy(&received_auto_data, data, sizeof(automotive_data_t));
+            new_auto_data = true;
+            last_auto_time = now;
+            
+            // Call callback if registered
+            if (auto_callback) {
+                try {
+                    auto_callback(received_auto_data);
+                } catch (...) {
+                    std::cout << "Serial: Exception in Auto callback" << std::endl;
+                }
             }
-        }
-        
-        static uint32_t last_debug = 0;
-        uint32_t current_time = getCurrentTimeMs();
-        if (current_time - last_debug > 3000) {
-            std::cout << "Serial: Auto - Speed:" << received_auto_data.speed_kmh << "km/h, "
-                     << "Gear:" << (received_auto_data.reverse ? "R" : (received_auto_data.forward ? "D" : "N")) << std::endl;
-            last_debug = current_time;
+            
+            // Debug output (reduced frequency)
+            static uint32_t last_auto_debug = 0;
+            uint32_t current_time = getCurrentTimeMs();
+            if (current_time - last_auto_debug > 5000) {  // Every 5 seconds
+                std::cout << "Serial: ✓ Auto - Speed:" << received_auto_data.speed_kmh << "km/h, "
+                         << "RPM:" << received_auto_data.rpm << ", "
+                         << "Gear:" << (received_auto_data.reverse ? "R" : (received_auto_data.forward ? "D" : "N")) << ", "
+                         << "Lights:" << (received_auto_data.lightOn ? "ON" : "OFF") << std::endl;
+                last_auto_debug = current_time;
+            }
+        } else {
+            std::cout << "Serial: Auto packet wrong size: got " << (int)length << ", expected " << sizeof(automotive_data_t) << std::endl;
         }
     } else {
-        std::cout << "Serial: Unknown packet type: " << (int)packet_type << std::endl;
+        // This shouldn't happen since we validate packet_type above, but just in case
+        std::cout << "Serial: Unknown packet type in processor: " << (int)packet_type << std::endl;
     }
 }
 
-
+// DATA ACCESS METHODS
 bool SerialCommunication::hasNewAutomotiveData() {
-    bool result = new_auto_data.exchange(false);
-    return result;
+    return new_auto_data.exchange(false);
 }
 
 bool SerialCommunication::hasNewBMSData() {
-    bool result = new_bms_data.exchange(false);
-    return result;
+    return new_bms_data.exchange(false);
 }
 
 bool SerialCommunication::isAutomotiveDataValid(int timeout_ms) {
@@ -309,6 +309,7 @@ bool SerialCommunication::isBMSDataValid(int timeout_ms) {
     return elapsed <= timeout_ms && last_bms_time != std::chrono::steady_clock::time_point{};
 }
 
+// CALLBACK REGISTRATION
 void SerialCommunication::setAutomotiveDataCallback(std::function<void(const automotive_data_t&)> callback) {
     auto_callback = callback;
 }

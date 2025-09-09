@@ -50,7 +50,7 @@ public:
     bool initialize();
     void shutdown();
     
-    // Data processing
+    // Data processing - EMV noise immune!
     void processData();
     
     // Check connection status
@@ -78,12 +78,9 @@ private:
     int baud_rate;
     int serial_fd = -1;
     
-    // Packet receiving state machine
-    uint8_t packet_buffer[256];
-    int packet_state = 0;
-    uint8_t packet_type = 0;
-    uint8_t packet_length = 0;
-    int data_index = 0;
+    // Rolling buffer for packet scanning (EMV noise immune)
+    uint8_t packet_buffer[1024];  // Larger buffer for noisy environments
+    size_t data_index = 0;        // Current buffer position
     
     // Received data
     automotive_data_t received_auto_data = {0};
@@ -101,10 +98,11 @@ private:
     std::function<void(const automotive_data_t&)> auto_callback;
     std::function<void(const bms_data_t&)> bms_callback;
     
-    // Internal methods
+    // Internal methods - EMV noise immune packet processing
     bool setupSerial();
     uint8_t calculateChecksum(uint8_t* data, size_t length);
-    void handleReceivedPacket();
+    void findAndProcessPackets();           // Scanner - never gets stuck!
+    void processValidPacket(uint8_t packet_type, uint8_t* data, uint8_t length);
     uint32_t getCurrentTimeMs();
 };
 
