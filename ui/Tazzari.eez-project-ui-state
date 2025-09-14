@@ -60,6 +60,7 @@
           },
           {
             "type": "border",
+            "selected": 0,
             "location": "bottom",
             "children": [
               {
@@ -178,9 +179,22 @@
               "type": "tabset",
               "id": "EDITORS",
               "weight": 60,
+              "selected": 1,
               "enableDeleteWhenEmpty": false,
               "enableClose": false,
               "children": [
+                {
+                  "type": "tab",
+                  "id": "#4627c4df-ee3d-43ff-bce5-aa69bbe1c1a1",
+                  "name": "Settings",
+                  "component": "editor",
+                  "config": {
+                    "objectPath": "[Tazzari.eez-project]:/settings",
+                    "subObjectPath": "[Tazzari.eez-project]:/settings",
+                    "permanent": false
+                  },
+                  "icon": "material:settings"
+                },
                 {
                   "type": "tab",
                   "id": "#fc29ba98-7650-42b0-b0a9-319e779fa8b6",
@@ -210,8 +224,7 @@
                     "_owner": null
                   }
                 }
-              ],
-              "active": true
+              ]
             },
             {
               "type": "row",
@@ -231,7 +244,8 @@
                       "enableClose": false,
                       "icon": "svg:properties"
                     }
-                  ]
+                  ],
+                  "active": true
                 },
                 {
                   "type": "tabset",
@@ -975,7 +989,14 @@
   "features": {},
   "objects": {
     "[Tazzari.eez-project]:/userPages/0[flow-state]": {
-      "selection": {},
+      "selection": {
+        "0": {
+          "32": {
+            "0": {},
+            "$selected": true
+          }
+        }
+      },
       "transform": {
         "translate": {
           "x": -400,
